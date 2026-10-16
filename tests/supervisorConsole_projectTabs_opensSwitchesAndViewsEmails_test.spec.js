@@ -62,8 +62,8 @@ test.describe('Supervisor Console Workspace Tabs & Email Hub', () => {
     const emailHub = page.locator('[data-testid="email-hub-view"]');
     await expect(emailHub).toBeVisible();
 
-    const allFilterBtn = page.locator('[data-testid="email-filter-all"]');
-    await expect(allFilterBtn).toBeVisible();
+    const inboxFilterBtn = page.locator('[data-testid="email-filter-inbox"]');
+    await expect(inboxFilterBtn).toBeVisible();
 
     const unassignedFilterBtn = page.locator('[data-testid="email-filter-unassigned"]');
     await expect(unassignedFilterBtn).toBeVisible();

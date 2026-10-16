@@ -21,6 +21,7 @@ interface EmailHubProps {
   onAssignEmail: (emailId: string, targetProjectId: string) => Promise<void>;
   assigningId: string | null;
   onSwitchToProject: (projectId: string) => void;
+  projectTitles?: Record<string, string>;
 }
 
 export const EmailHub: React.FC<EmailHubProps> = ({
@@ -30,8 +31,9 @@ export const EmailHub: React.FC<EmailHubProps> = ({
   onAssignEmail,
   assigningId,
   onSwitchToProject,
+  projectTitles = {},
 }) => {
-  const [filter, setFilter] = useState<'all' | 'unassigned' | 'assigned'>('all');
+  const [filter, setFilter] = useState<'inbox' | 'unassigned' | 'assigned'>('unassigned');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [manualProjectId, setManualProjectId] = useState('');
@@ -94,15 +96,15 @@ export const EmailHub: React.FC<EmailHubProps> = ({
           <div className="flex rounded-md bg-[#0d1117] p-0.5 border border-[#30363d]">
             <button
               type="button"
-              onClick={() => setFilter('all')}
-              data-testid="email-filter-all"
+              onClick={() => setFilter('inbox')}
+              data-testid="email-filter-inbox"
               className={`flex-1 py-1 text-xs font-medium rounded transition-colors ${
-                filter === 'all'
+                filter === 'inbox'
                   ? 'bg-[#21262d] text-white shadow-sm'
                   : 'text-gray-400 hover:text-gray-200'
               }`}
             >
-              All ({emails.length})
+              Inbox ({emails.length})
             </button>
             <button
               type="button"
@@ -114,7 +116,7 @@ export const EmailHub: React.FC<EmailHubProps> = ({
                   : 'text-gray-400 hover:text-gray-200'
               }`}
             >
-              Inbox ({emails.filter((e) => !e.projectId).length})
+              Unassigned ({emails.filter((e) => !e.projectId).length})
             </button>
             <button
               type="button"
@@ -140,6 +142,8 @@ export const EmailHub: React.FC<EmailHubProps> = ({
               <p className="text-[11px] text-gray-500">
                 {filter === 'unassigned'
                   ? 'No unassigned messages awaiting triage.'
+                  : filter === 'assigned'
+                  ? 'No assigned messages found.'
                   : 'Try adjusting your search filter.'}
               </p>
             </div>
@@ -298,6 +302,7 @@ export const EmailHub: React.FC<EmailHubProps> = ({
                     <div className="flex flex-wrap gap-1.5">
                       {openProjectIds.map((pid) => {
                         const isCurrentActive = pid === activeProjectId;
+                        const projectName = projectTitles[pid] || pid;
                         return (
                           <button
                             key={pid}
@@ -305,13 +310,15 @@ export const EmailHub: React.FC<EmailHubProps> = ({
                             disabled={assigningId === selectedEmail.id}
                             onClick={() => onAssignEmail(selectedEmail.id, pid)}
                             data-testid="emailhub-assign-btn"
+                            data-project-id={pid}
+                            title={`Assign to ${projectName}`}
                             className={`flex items-center space-x-1.5 text-xs font-medium px-2.5 py-1 rounded transition-colors disabled:opacity-50 ${
                               isCurrentActive
                                 ? 'bg-blue-600 hover:bg-blue-500 text-white ring-1 ring-blue-400'
                                 : 'bg-[#30363d] hover:bg-[#3f4752] text-gray-200'
                             }`}
                           >
-                            <span>Assign to {pid}{isCurrentActive ? ' (active)' : ''}</span>
+                            <span>Assign to {projectName}</span>
                             <ArrowRight className="w-3 h-3" />
                           </button>
                         );

@@ -22,6 +22,7 @@ export const config = {
   },
   apiBaseUrl: requireEnv('VITE_API_BASE_URL', import.meta.env.VITE_API_BASE_URL),
   projectId: requireEnv('VITE_PROJECT_ID', import.meta.env.VITE_PROJECT_ID),
+  supervisorToken: requireEnv('VITE_SUPERVISOR_ACCESS_TOKEN', import.meta.env.VITE_SUPERVISOR_ACCESS_TOKEN),
   useEmulator: requireEnv('VITE_USE_EMULATOR', import.meta.env.VITE_USE_EMULATOR) === 'true',
   firestoreEmulatorHost: import.meta.env.VITE_USE_EMULATOR === 'true'
     ? requireEnv('VITE_FIRESTORE_EMULATOR_HOST', import.meta.env.VITE_FIRESTORE_EMULATOR_HOST)

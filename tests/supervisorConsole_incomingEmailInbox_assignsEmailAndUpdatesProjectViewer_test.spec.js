@@ -91,10 +91,8 @@ test.describe('Supervisor Console Incoming Email Inbox & Assignment Tests', () =
     await expect(emailCard).toBeVisible({ timeout: 15000 });
     await emailCard.click();
 
-    // 8. Click "Assign to [testProjectId]" in the assignment bar
-    const assignBtn = page.locator('[data-testid="emailhub-assign-btn"]').filter({
-      hasText: testProjectId,
-    });
+    // 8. Click "Assign to <projectName>" in the assignment bar
+    const assignBtn = page.locator(`[data-testid="emailhub-assign-btn"][data-project-id="${testProjectId}"]`);
     await expect(assignBtn).toBeVisible({ timeout: 5000 });
     await assignBtn.click();
 

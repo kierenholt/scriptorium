@@ -24,6 +24,13 @@ const test = base.extend({
       attachConsoleListeners(page);
     });
 
+    const supervisorToken = process.env.VITE_SUPERVISOR_ACCESS_TOKEN || 'a1e839a5143ce7f6b744ce6f4eed57bf';
+    await context.addInitScript((token) => {
+      if (!window.__DISABLE_TEST_SUPERVISOR_AUTH__) {
+        sessionStorage.setItem('scriptorium_supervisor_token', token);
+      }
+    }, supervisorToken);
+
     await use(context);
   },
   page: async ({ page }, use, testInfo) => {
@@ -63,12 +70,14 @@ const test = base.extend({
     const googleCloudProject = options.googleCloudProject || process.env.VITE_FIREBASE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || 'scriptorium-503507';
 
     const hostUrl = options.baseURL || (isProduction ? `https://${googleCloudProject}.web.app` : 'http://localhost:3000');
+    const supervisorToken = options.supervisorToken || process.env.VITE_SUPERVISOR_ACCESS_TOKEN || 'a1e839a5143ce7f6b744ce6f4eed57bf';
 
     const testConfig = {
       isProduction,
       googleCloudProject,
       baseURL: hostUrl,
-      hostUrl
+      hostUrl,
+      supervisorToken
     };
 
     // MANDATORY PROJECT RULE: AT THE BEGINNING OF EACH TEST, THE TEST MUST ASSERT THAT THE SERVICES ARE RUNNING

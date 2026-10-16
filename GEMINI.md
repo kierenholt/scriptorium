@@ -141,7 +141,18 @@ flowchart TD
     - **Left Panel (70%)**: `ProjectViewer.tsx` displays the structured project inspector featuring a two-column sub-layout: a left-hand domain navigation sub-sidebar (Overview & Status, Brief & Scope, Requirements & Tags, Deliverables & Files, Communications) and a central inspector pane with reactive cards, status pills, count badges, and an in-header toggle to switch to the formatted Raw JSON view (`data-testid="project-raw-json"`). The Raw JSON view includes an interactive, expandable `_subcollections` tree for project subcollections (e.g. `messages` subcollection) with on-demand lazy loading (`fetchProjectMessages` / `data-testid="subcollection-messages-toggle"`) when the expander is clicked, document count pills, manual reload triggers, and full JSON clipboard export (`data-testid="copy-json-btn"`). If a project document does not yet exist in Firestore, it presents an actionable **"Initialize / Seed Project"** button to bootstrap the document in place with one click.
     - **Right Panel (30%)**: `ChatPanel.tsx` handles natural language conversations with the supervisor agent via Server-Sent Events (SSE). Streams tokens, status tickers, and tool execution badges (`ToolCallBadge.tsx`). The chat interface features consistent complementary theming: vibrant blue (`bg-blue-600`) for the Supervisor messages and a complementary deep purple shade (`bg-[#1c1836]` with `border-purple-500/30`) for Agent replies with inline bold markdown parsing. Embedded tool call badges feature an interactive expander (`data-testid="tool-call-expander"`) allowing users to collapse or expand raw parameters, results, and error details on demand while keeping the conversation compact and readable.
   - **Email Hub Workspace (`EmailHub.tsx`)**: Split-pane triage workspace for inbound and outbound messages:
-    - **Left List**: Filterable inbox (All, Unassigned Inbox, Assigned) with search, timestamps, and sender previews.
+    - **Left List**: Segmented filter control: **Inbox** (merged repository emails, `data-testid="email-filter-inbox"`), **Unassigned** (messages awaiting triage where `!projectId`, `data-testid="email-filter-unassigned"`), and **Assigned** (project-associated messages, `data-testid="email-filter-assigned"`), defaulting to the Unassigned view on mount for immediate triage focus, with search, timestamps, and sender previews.
+    - **Quick Assignment Bar**: Renders quick-assign buttons for currently open project tabs displaying the clean project name (`Assign to <Project Name>` via `projectTitles` prop) and `data-project-id`, omitting raw IDs and `(active)` tags for clear, human-readable triage.
+  - **Standalone Project View (`StandaloneProjectView.tsx` / `?project=<id>`)**:
+    - Query parameter `?project=<projectid>` activates a dedicated, full-width/full-height single-project inspector mode, distinct from `?projectId=` (which powers the supervisor multi-tab workspace).
+    - Completely omits top `Header`, `TabBar`, and `ChatPanel`, presenting an unencumbered, distraction-free view of `ProjectViewer`.
+    - Retains full interactive capability: domain navigation sub-sidebar (Overview & Status, Brief & Scope, Requirements & Tags, Deliverables & Files, Communications), Structured Inspector, formatted Raw JSON mode with expandable subcollections, and the 1-click "Initialize / Seed Project" button when a record has not yet been seeded.
+    - Dynamically sets `document.title` to `${project.title || projectId} | Scriptorium`.
+    - Validates project ID against `isValidEntityId(id, 'pr')` and provides a clean, dark-themed "Project Not Found or Invalid ID" recovery card with direct ID input and a return shortcut to the Supervisor Console.
+    - **Supervisor Dashboard "Project Only" Links**:
+      - `ProjectViewer` header toolbar features an external link button (`data-testid="project-only-link"`) next to the sync status, allowing supervisors to open the project in standalone full-width mode with one click.
+      - `ProjectViewer` domain sub-sidebar footer includes a `data-testid="sidebar-project-only-link"`.
+      - `OpenProjectModal` list includes an external link button (`data-testid="modal-project-only-link-${p.id}"`) next to each available project in the database.
 - **Header (`Header.tsx`)**: Streamlined single-row header (`h-12`) featuring the Scriptorium terminal logo, title, clean "Supervisor" badge, and live Firestore connection status pill. Redundant project ID and GCP indicators have been removed from the header as active projects are explicitly managed and identified in the TabBar directly below.
 
 
@@ -227,6 +238,22 @@ flowchart TD
     3. `lookupProjectArtifact`: Inspects deliverable metadata by `artifactId` (`ar-xxxxxx`) or filename.
     4. `readCandidateEmailMessage`: Inspects and searches email records by `emailId` (`em-xxxxxx`) or keyword.
 
+#### G. Supervisor Dashboard Access Token Security Guard (`frontend/src/App.tsx`, `frontend/src/components/AccessDenied.tsx`, `frontend/src/config.ts`)
+- **Overview**: Protects the supervisor console SPA from unauthorized access by requiring an access token provided via URL query parameter (`?token=<32-char-hex>`).
+- **Fail-Fast Configuration**:
+  - Configured via `VITE_SUPERVISOR_ACCESS_TOKEN` in `.env`, `.env.local`, and `.env.production`.
+  - Missing or blank configuration throws an immediate fail-fast error during app bootstrap via `config.ts`.
+- **Authentication Lifecycle & URL Hygiene**:
+  - On initial visit, the gate checks `sessionStorage` (`scriptorium_supervisor_token`) and URL query parameters (`?token=...`).
+  - When a valid query token is detected, it is immediately persisted to `sessionStorage`, and stripped from the address bar via `window.history.replaceState` to prevent token leakage in screen shares, history, or bookmarks.
+  - Subsequent tab switches, navigations, and reloads authenticate transparently through `sessionStorage`.
+- **Access Denied Experience (`AccessDenied.tsx`)**:
+  - Missing or mismatched tokens render a dedicated full-screen 403 Access Denied view (`data-testid="access-denied-screen"`) matching Scriptorium's dark terminal theme.
+  - While unauthenticated, no Firestore listeners, email subscriptions, or workspace components are mounted.
+- **Automated Testing & Test Runner Integration**:
+  - `tests/loggingHelper.js` automatically provisions the supervisor token to test browser contexts via `context.addInitScript` so existing E2E suites run uninterrupted.
+  - Tests can set `window.__DISABLE_TEST_SUPERVISOR_AUTH__ = true` to assert on unauthorized states (`tests/supervisorDashboard_missingOrInvalidToken_rendersAccessDenied_test.spec.js`).
+  - Unit test suite (`frontend/src/tests/supervisorTokenGuard_missingOrInvalidToken_rendersAccessDenied_test.tsx`) validates missing, invalid, and valid token flows in jsdom.
 
 ---
 

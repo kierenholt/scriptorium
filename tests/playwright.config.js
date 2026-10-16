@@ -42,6 +42,13 @@ const activeLocalEnv = { ...rootEnv, ...localEnv };
 const localProjectId = activeLocalEnv.VITE_FIREBASE_PROJECT_ID || activeLocalEnv.GCP_PROJECT_ID || 'scriptorium-503507';
 const prodProjectId = prodEnv.VITE_FIREBASE_PROJECT_ID || 'scriptorium-503507';
 
+const localSupervisorToken = activeLocalEnv.VITE_SUPERVISOR_ACCESS_TOKEN || 'a1e839a5143ce7f6b744ce6f4eed57bf';
+const prodSupervisorToken = prodEnv.VITE_SUPERVISOR_ACCESS_TOKEN || 'a1e839a5143ce7f6b744ce6f4eed57bf';
+
+if (!process.env.VITE_SUPERVISOR_ACCESS_TOKEN) {
+  process.env.VITE_SUPERVISOR_ACCESS_TOKEN = localSupervisorToken;
+}
+
 /** @type {import('@playwright/test').PlaywrightOptions & CustomTestOptions} */
 const localConfig = {
   ...devices['Desktop Chrome'],
@@ -49,6 +56,7 @@ const localConfig = {
   isProduction: false,
   googleCloudProject: localProjectId,
   firebaseRegion: 'europe-west2',
+  supervisorToken: localSupervisorToken,
 };
 
 if (process.argv.some(arg => String(arg).includes('production'))) {
@@ -68,6 +76,7 @@ const productionConfig = {
   isProduction: true,
   googleCloudProject: prodProjectId,
   firebaseRegion: 'europe-west2',
+  supervisorToken: prodSupervisorToken,
 };
 
 /** @type {import('@playwright/test').PlaywrightTestConfig<CustomTestOptions>} */

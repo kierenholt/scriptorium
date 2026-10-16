@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Folder, Plus, Search, Loader2, Sparkles, AlertCircle } from 'lucide-react';
+import { X, Folder, Plus, Search, Loader2, Sparkles, AlertCircle, ExternalLink } from 'lucide-react';
 import { generateEntityId, isValidEntityId } from '../services/entityId';
 import { fetchRecentProjectsList } from '../services/firebase';
 import { seedProject } from '../services/api';
@@ -225,6 +225,17 @@ export const OpenProjectModal: React.FC<OpenProjectModalProps> = ({
                             Already open
                           </span>
                         )}
+                        <a
+                          href={`/?project=${p.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-testid={`modal-project-only-link-${p.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1 rounded text-gray-400 hover:text-blue-400 hover:bg-[#21262d] border border-transparent hover:border-[#30363d] transition-colors"
+                          title="Open standalone project view in a new tab"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
                       </div>
                     </div>
                   );

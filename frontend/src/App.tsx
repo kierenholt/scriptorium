@@ -4,15 +4,34 @@ import { TabBar } from './components/TabBar';
 import { ProjectTabSession } from './components/ProjectTabSession';
 import { EmailHub } from './components/EmailHub';
 import { OpenProjectModal } from './components/OpenProjectModal';
+import { StandaloneProjectView } from './components/StandaloneProjectView';
 import { subscribeToInboxEmails, subscribeToAllEmails, fetchRecentProjectsList } from './services/firebase';
 import { assignEmailToProject, fetchInboxEmails } from './services/api';
 import { ProjectEmail } from './types';
 import { isValidEntityId } from './services/entityId';
+import { AccessDenied } from './components/AccessDenied';
+import { config } from './config';
 
 const STORAGE_KEY_TABS = 'scriptorium_open_tabs';
 const STORAGE_KEY_ACTIVE = 'scriptorium_active_tab';
+const TOKEN_STORAGE_KEY = 'scriptorium_supervisor_token';
 
-export const App: React.FC = () => {
+const SupervisorConsole: React.FC = () => {
+  // Check if standalone single-project view is requested via ?project= query parameter
+  const [standaloneProject] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('project')) {
+        return params.get('project') || '';
+      }
+    }
+    return null;
+  });
+
+  if (standaloneProject !== null) {
+    return <StandaloneProjectView projectId={standaloneProject} />;
+  }
+
   // Determine initial project and tab from URL or localStorage
   const getInitialState = () => {
     let urlProjectId: string | null = null;
@@ -89,6 +108,7 @@ export const App: React.FC = () => {
 
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
+      url.searchParams.delete('token');
       if (activeTab === 'emails') {
         url.searchParams.set('tab', 'emails');
         url.searchParams.delete('projectId');
@@ -243,6 +263,7 @@ export const App: React.FC = () => {
             onAssignEmail={handleAssignEmail}
             assigningId={assigningId}
             onSwitchToProject={handleOpenProject}
+            projectTitles={projectTitles}
           />
         )}
 
@@ -266,6 +287,33 @@ export const App: React.FC = () => {
       </main>
     </div>
   );
+};
+
+export const App: React.FC = () => {
+  const [isAuthenticated] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const storedToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    if (storedToken && storedToken === config.supervisorToken) {
+      return true;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get('token');
+    if (urlToken && urlToken === config.supervisorToken) {
+      sessionStorage.setItem(TOKEN_STORAGE_KEY, config.supervisorToken);
+      // Clean token from address bar to prevent leaking in bookmarks and screen-sharing
+      params.delete('token');
+      const newSearch = params.toString() ? `?${params.toString()}` : '';
+      window.history.replaceState(null, '', window.location.pathname + newSearch + window.location.hash);
+      return true;
+    }
+    return false;
+  });
+
+  if (!isAuthenticated) {
+    return <AccessDenied />;
+  }
+
+  return <SupervisorConsole />;
 };
 
 export default App;

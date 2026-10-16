@@ -15,6 +15,7 @@ import {
   Copy,
   Check,
   RefreshCw,
+  ExternalLink,
 } from 'lucide-react';
 import { ProjectDocument, ProjectStatus, ProjectArtifact, ProjectEmail, ChatMessage } from '../types';
 import { seedProject } from '../services/api';
@@ -27,6 +28,7 @@ interface ProjectViewerProps {
   error?: string | null;
   messages?: ChatMessage[];
   onLoadSubcollection?: (name: string) => Promise<ChatMessage[]>;
+  isStandalone?: boolean;
 }
 
 type SectionKey = 'overview' | 'brief' | 'tags' | 'artifacts' | 'emails';
@@ -38,6 +40,7 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
   error,
   messages,
   onLoadSubcollection,
+  isStandalone = false,
 }) => {
   const [viewMode, setViewMode] = useState<'structured' | 'raw'>('structured');
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
@@ -233,6 +236,20 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
               <Clock className="w-3.5 h-3.5 text-gray-500" />
               <span>Synced: {new Date(project.updatedAt).toLocaleTimeString()}</span>
             </div>
+          )}
+
+          {!isStandalone && (projectId || project?.id) && (
+            <a
+              href={`/?project=${projectId || project?.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="project-only-link"
+              className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-medium bg-[#21262d] hover:bg-[#30363d] text-blue-400 hover:text-blue-300 border border-[#30363d] transition-colors"
+              title="Open standalone project view in a new tab"
+            >
+              <span>Project Only</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
           )}
         </div>
       </div>
@@ -516,6 +533,22 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
                   <span>Lifecycle</span>
                   <span className="font-mono text-blue-400 capitalize">{project.status}</span>
                 </div>
+                {!isStandalone && (
+                  <div className="pt-2 border-t border-[#30363d]/50 flex items-center justify-between">
+                    <span className="text-[10px] text-gray-500">Standalone</span>
+                    <a
+                      href={`/?project=${project.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="sidebar-project-only-link"
+                      className="inline-flex items-center space-x-1 text-xs text-blue-400 hover:text-blue-300 transition-colors font-medium"
+                      title="Open project only view in new tab"
+                    >
+                      <span>Project Only</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
 
