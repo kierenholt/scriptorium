@@ -10,6 +10,8 @@ vi.mock('../services/firebase', () => ({
   subscribeToAllEmails: vi.fn(() => () => {}),
   fetchRecentProjectsList: vi.fn().mockResolvedValue([]),
   listenToProjectDocument: vi.fn(() => () => {}),
+  subscribeToProject: vi.fn(() => () => {}),
+  subscribeToMessages: vi.fn(() => () => {}),
 }));
 
 vi.mock('../services/api', () => ({
@@ -76,6 +78,21 @@ describe('Supervisor Token Guard', () => {
 
       // Token should be removed from the URL
       expect(window.location.search).not.toContain('token=');
+    } finally {
+      unmount();
+    }
+  });
+
+  it('supervisorTokenGuard_standaloneProjectParam_bypassesTokenGuardAndRendersProjectView_test', () => {
+    window.history.replaceState(null, '', '/?project=pr-7k4x9q');
+
+    const { unmount } = render(<App />);
+    try {
+      // Access denied screen should NOT be visible even with no supervisor token
+      expect(screen.queryByTestId('access-denied-screen')).toBeNull();
+
+      // Standalone project view should be mounted
+      expect(screen.getByTestId('standalone-project-view-pr-7k4x9q')).toBeDefined();
     } finally {
       unmount();
     }

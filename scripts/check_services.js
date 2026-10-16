@@ -34,9 +34,8 @@ function loadEnvFile(filePath) {
   return env;
 }
 
-const rootEnv = loadEnvFile('.env');
 const localEnv = loadEnvFile('.env.local');
-Object.assign(process.env, rootEnv, localEnv);
+Object.assign(process.env, localEnv);
 
 const frontendPort = parseInt(process.env.PORT || '3000', 10);
 const frontendUrl = process.env.LOCAL_BASE_URL || `http://localhost:${frontendPort}`;

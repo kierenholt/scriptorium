@@ -34,10 +34,9 @@ function loadEnvFile(fileName) {
 }
 
 const localEnv = loadEnvFile('.env.local');
-const rootEnv = loadEnvFile('.env');
 const prodEnv = loadEnvFile('.env.production');
 
-const activeLocalEnv = { ...rootEnv, ...localEnv };
+const activeLocalEnv = { ...localEnv };
 
 const localProjectId = activeLocalEnv.VITE_FIREBASE_PROJECT_ID || activeLocalEnv.GCP_PROJECT_ID || 'scriptorium-503507';
 const prodProjectId = prodEnv.VITE_FIREBASE_PROJECT_ID || 'scriptorium-503507';

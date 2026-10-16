@@ -213,7 +213,7 @@ flowchart TD
   - `assignEmailToProject`: Explicitly moves and attaches an email into `projects/{projectId}.emails`.
   - `listUnassignedInboxEmails`: Lists unassigned incoming messages for agent triage.
 - **Fail-Fast Credential Isolation**:
-  - `RESEND_API_KEY` is loaded strictly from environment files (`.env`, `.env.local`, `.env.production`). No hardcoded API keys or fallback strings are permitted in production or test files. Missing keys trigger explicit error responses (`MISSING_RESEND_API_KEY`).
+  - `RESEND_API_KEY` is loaded strictly from environment files (`.env.local`, `.env.production`). No hardcoded API keys or fallback strings are permitted in production or test files. Missing keys trigger explicit error responses (`MISSING_RESEND_API_KEY`).
   - Standalone binaries (e.g. `tools/resend`) are excluded via `.gitignore`.
 
 #### F. Strict Firestore Record ID Conventions & Dedicated Agent Lookup Tools (`functions/src/entityId.ts`)
@@ -241,7 +241,7 @@ flowchart TD
 #### G. Supervisor Dashboard Access Token Security Guard (`frontend/src/App.tsx`, `frontend/src/components/AccessDenied.tsx`, `frontend/src/config.ts`)
 - **Overview**: Protects the supervisor console SPA from unauthorized access by requiring an access token provided via URL query parameter (`?token=<32-char-hex>`).
 - **Fail-Fast Configuration**:
-  - Configured via `VITE_SUPERVISOR_ACCESS_TOKEN` in `.env`, `.env.local`, and `.env.production`.
+  - Configured via `VITE_SUPERVISOR_ACCESS_TOKEN` in `.env.local` and `.env.production`.
   - Missing or blank configuration throws an immediate fail-fast error during app bootstrap via `config.ts`.
 - **Authentication Lifecycle & URL Hygiene**:
   - On initial visit, the gate checks `sessionStorage` (`scriptorium_supervisor_token`) and URL query parameters (`?token=...`).

@@ -1,11 +1,10 @@
 const path = require('path');
 const fs = require('fs');
 
-// Load environment variables from .env.local, .env.development or .env
+// Load environment variables from .env.local or .env.development
 const localEnvPath = path.join(__dirname, '..', '.env.local');
 const devEnvPath = path.join(__dirname, '..', '.env.development');
-const rootEnvPath = path.join(__dirname, '..', '.env');
-const envPath = fs.existsSync(localEnvPath) ? localEnvPath : (fs.existsSync(devEnvPath) ? devEnvPath : rootEnvPath);
+const envPath = fs.existsSync(localEnvPath) ? localEnvPath : devEnvPath;
 require('dotenv').config({ path: envPath });
 
 const isLocal = process.argv[2] === 'local' || process.argv[2] === 'emulator';

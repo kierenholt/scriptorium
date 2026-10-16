@@ -17,21 +17,6 @@ const STORAGE_KEY_ACTIVE = 'scriptorium_active_tab';
 const TOKEN_STORAGE_KEY = 'scriptorium_supervisor_token';
 
 const SupervisorConsole: React.FC = () => {
-  // Check if standalone single-project view is requested via ?project= query parameter
-  const [standaloneProject] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.has('project')) {
-        return params.get('project') || '';
-      }
-    }
-    return null;
-  });
-
-  if (standaloneProject !== null) {
-    return <StandaloneProjectView projectId={standaloneProject} />;
-  }
-
   // Determine initial project and tab from URL or localStorage
   const getInitialState = () => {
     let urlProjectId: string | null = null;
@@ -290,6 +275,21 @@ const SupervisorConsole: React.FC = () => {
 };
 
 export const App: React.FC = () => {
+  // Standalone project view is open and accessible without supervisor token
+  const [standaloneProject] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('project')) {
+        return params.get('project') || '';
+      }
+    }
+    return null;
+  });
+
+  if (standaloneProject !== null) {
+    return <StandaloneProjectView projectId={standaloneProject} />;
+  }
+
   const [isAuthenticated] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     const storedToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
