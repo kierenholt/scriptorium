@@ -166,3 +166,53 @@ export async function deleteGcsObject(gcsUri: string): Promise<void> {
     await file.delete();
   }
 }
+
+/**
+ * Promotes and copies an uploaded file into the project artifacts bucket under projects/{projectId}/{filename}.
+ */
+export async function copyUploadedFileToProjectArtifacts(
+  sourceGcsUri: string,
+  projectId: string,
+  artifactFilename: string,
+  customMimeType?: string
+): Promise<{ uri: string; size: number; mimeType: string }> {
+  if (!sourceGcsUri || sourceGcsUri.trim() === '') {
+    throw new Error('[FAIL FAST] Mandatory parameter "sourceGcsUri" is missing in copyUploadedFileToProjectArtifacts.');
+  }
+  if (!projectId || projectId.trim() === '') {
+    throw new Error('[FAIL FAST] Mandatory parameter "projectId" is missing in copyUploadedFileToProjectArtifacts.');
+  }
+  if (!artifactFilename || artifactFilename.trim() === '') {
+    throw new Error('[FAIL FAST] Mandatory parameter "artifactFilename" is missing in copyUploadedFileToProjectArtifacts.');
+  }
+
+  const { bucket: srcBucketName, objectPath: srcObjectPath } = parseGcsUri(sourceGcsUri);
+  const storage = await getStorageClient();
+  const srcBucket = storage.bucket(srcBucketName);
+  const srcFile = srcBucket.file(srcObjectPath);
+
+  const [exists] = await srcFile.exists();
+  if (!exists) {
+    throw new Error(`[FAIL FAST] Source file does not exist at "${sourceGcsUri}".`);
+  }
+
+  const destBucket = storage.bucket(serverConfig.projectArtifactsBucket);
+  const sanitizedName = path.basename(artifactFilename).replace(/[^a-zA-Z0-9._-]/g, '_');
+  const destPath = `projects/${projectId}/${sanitizedName}`;
+  const destFile = destBucket.file(destPath);
+
+  await srcFile.copy(destFile);
+
+  const [metadata] = await destFile.getMetadata();
+  const mimeType = customMimeType || (metadata.contentType as string) || 'application/octet-stream';
+  if (customMimeType && customMimeType !== metadata.contentType) {
+    await destFile.setMetadata({ contentType: customMimeType });
+  }
+
+  return {
+    uri: `gs://${destBucket.name}/${destPath}`,
+    size: Number(metadata.size || 0),
+    mimeType,
+  };
+}
+

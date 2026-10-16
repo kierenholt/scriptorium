@@ -19,7 +19,7 @@ describe('executeUpdateStatus', () => {
   });
 
   it('executeUpdateStatus_validStatus_updatesProjectDocument_test', async () => {
-    const result = await executeUpdateStatus('project-default', { status: 'completed' });
+    const result = await executeUpdateStatus('pr-7k4x9q', { status: 'completed' });
 
     expect(result.success).toBe(true);
     expect(result.data?.status).toBe('completed');

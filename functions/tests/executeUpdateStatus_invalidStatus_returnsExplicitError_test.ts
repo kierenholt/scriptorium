@@ -19,7 +19,7 @@ describe('executeUpdateStatus invalid handling', () => {
   });
 
   it('executeUpdateStatus_invalidStatus_returnsExplicitError_test', async () => {
-    const result = await executeUpdateStatus('project-default', { status: 'non_existent_status' });
+    const result = await executeUpdateStatus('pr-7k4x9q', { status: 'non_existent_status' });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Invalid status');

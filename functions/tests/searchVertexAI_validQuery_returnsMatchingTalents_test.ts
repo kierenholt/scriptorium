@@ -24,5 +24,5 @@ describe('searchVertexAI', () => {
     expect(match.id).toBeDefined();
     expect(match.name).toBeDefined();
     expect(match.role).toContain('Business Analyst');
-  });
+  }, 20000);
 });

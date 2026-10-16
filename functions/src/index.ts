@@ -1,10 +1,15 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import cors from 'cors';
+import path from 'path';
 import { runAgentConversation } from './agent';
-import { seedDefaultProject } from './firestore';
+import { seedDefaultProject, getProject } from './firestore';
 import { searchVertexAI } from './vertexSearch';
-import { uploadBufferToGcs } from './storage';
+import { uploadBufferToGcs, downloadBufferFromGcs } from './storage';
+import { verifyArtifactDownloadToken } from './artifactTokens';
 import { setupFirestoreLogging, logToFirestore } from './logger';
+import { serverConfig } from './config';
+import { assertValidEntityId } from './entityId';
+import { executeAssignEmailToProject, executeListUnassignedInboxEmails } from './tools/emailExecutors';
 
 export { setupFirestoreLogging, logToFirestore } from './logger';
 
@@ -51,6 +56,16 @@ export const chat = onRequest(
         res.status(400).json({
           error: 'MISSING_PROJECT_ID',
           message: '[FAIL FAST] Mandatory field "projectId" is missing from request body.',
+        });
+        return;
+      }
+
+      try {
+        assertValidEntityId(projectId.trim(), 'pr');
+      } catch (err: any) {
+        res.status(400).json({
+          error: 'INVALID_PROJECT_ID',
+          message: err.message,
         });
         return;
       }
@@ -124,7 +139,7 @@ export const chat = onRequest(
 
 /**
  * Project Seed Endpoint.
- * Creates or resets the project-default document in Firestore.
+ * Creates or resets the default project document in Firestore.
  */
 export const seed = onRequest(
   {
@@ -143,7 +158,17 @@ export const seed = onRequest(
         return;
       }
 
-      const projectId = req.query.projectId as string || req.body?.projectId || 'project-default';
+      const projectId = (req.query.projectId as string) || req.body?.projectId || serverConfig.defaultProjectId;
+
+      try {
+        assertValidEntityId(projectId, 'pr');
+      } catch (err: any) {
+        res.status(400).json({
+          error: 'INVALID_PROJECT_ID',
+          message: err.message,
+        });
+        return;
+      }
 
       try {
         await logToFirestore('info', `[seed] Seeding project "${projectId}"`, { projectId }, 'seed');
@@ -326,4 +351,280 @@ export const upload = onRequest(
     });
   }
 );
+
+/**
+ * Email Service Endpoint.
+ * Dispatches outbound transactional emails and records telemetry.
+ */
+export const emailService = onRequest(
+  {
+    region: 'europe-west2',
+    timeoutSeconds: 60,
+    cors: true,
+  },
+  async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    corsHandler(req, res, async () => {
+      if (req.method === 'OPTIONS') {
+        res.status(204).send('');
+        return;
+      }
+
+      try {
+        await logToFirestore('info', `[emailService] Incoming request`, { action: req.body?.action || req.query?.action }, 'emailService');
+        const emailModule = require(path.resolve(__dirname, '../../gcloud/email'));
+        return await emailModule(req, res);
+      } catch (err: any) {
+        await logToFirestore('error', `[emailService] Error handling request: ${err?.message}`, { error: err?.message }, 'emailService');
+        if (!res.headersSent) {
+          res.status(500).json({ error: err?.message || 'Internal email service error' });
+        }
+      }
+    });
+  }
+);
+
+/**
+ * Project Artifact Secure Download Endpoint.
+ * Validates timeboxed HMAC signature and streams file directly from GCS.
+ */
+export const downloadArtifact = onRequest(
+  {
+    region: 'europe-west2',
+    timeoutSeconds: 60,
+    cors: true,
+  },
+  async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    corsHandler(req, res, async () => {
+      if (req.method === 'OPTIONS') {
+        res.status(204).send('');
+        return;
+      }
+
+      if (req.method !== 'GET') {
+        res.status(405).json({
+          error: 'METHOD_NOT_ALLOWED',
+          message: 'Only GET requests are supported on /downloadArtifact.',
+        });
+        return;
+      }
+
+      const { projectId, artifactId, expires, signature } = req.query;
+
+      if (!projectId || typeof projectId !== 'string' || projectId.trim() === '') {
+        res.status(400).json({
+          error: 'MISSING_PROJECT_ID',
+          message: '[FAIL FAST] Mandatory query param "projectId" is missing.',
+        });
+        return;
+      }
+
+      if (!artifactId || typeof artifactId !== 'string' || artifactId.trim() === '') {
+        res.status(400).json({
+          error: 'MISSING_ARTIFACT_ID',
+          message: '[FAIL FAST] Mandatory query param "artifactId" is missing.',
+        });
+        return;
+      }
+
+      try {
+        assertValidEntityId((projectId as string).trim(), 'pr');
+        assertValidEntityId((artifactId as string).trim(), 'ar');
+      } catch (err: any) {
+        res.status(400).json({
+          error: 'INVALID_ENTITY_ID',
+          message: err.message,
+        });
+        return;
+      }
+
+      if (!expires || typeof expires !== 'string' || !Number(expires)) {
+        res.status(400).json({
+          error: 'MISSING_EXPIRES',
+          message: '[FAIL FAST] Mandatory query param "expires" is missing or invalid.',
+        });
+        return;
+      }
+
+      if (!signature || typeof signature !== 'string' || signature.trim() === '') {
+        res.status(400).json({
+          error: 'MISSING_SIGNATURE',
+          message: '[FAIL FAST] Mandatory query param "signature" is missing.',
+        });
+        return;
+      }
+
+      const verification = verifyArtifactDownloadToken(
+        projectId.trim(),
+        artifactId.trim(),
+        Number(expires),
+        signature.trim()
+      );
+
+      if (!verification.valid) {
+        res.status(403).json({
+          error: 'FORBIDDEN',
+          message: verification.reason || 'Invalid or expired signature.',
+        });
+        return;
+      }
+
+      try {
+        const project = await getProject(projectId.trim());
+        if (!project) {
+          res.status(404).json({
+            error: 'PROJECT_NOT_FOUND',
+            message: `Project "${projectId}" not found.`,
+          });
+          return;
+        }
+
+        const artifact = (project.artifacts || []).find((a) => a.id === artifactId.trim());
+        if (!artifact) {
+          res.status(404).json({
+            error: 'ARTIFACT_NOT_FOUND',
+            message: `Artifact "${artifactId}" not found in project "${projectId}".`,
+          });
+          return;
+        }
+
+        const { buffer, mimeType, filename } = await downloadBufferFromGcs(artifact.gcsUri);
+
+        res.setHeader('Content-Type', mimeType || artifact.mimeType || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename || artifact.name)}"`);
+        res.setHeader('Content-Length', buffer.length);
+        res.status(200).send(buffer);
+      } catch (err: any) {
+        await logToFirestore('error', `[downloadArtifact] Error serving file: ${err?.message}`, { error: err?.message, projectId, artifactId }, 'downloadArtifact');
+        res.status(500).json({
+          error: 'DOWNLOAD_FAILED',
+          message: err?.message || 'Failed to download artifact.',
+        });
+      }
+    });
+  }
+);
+
+/**
+ * Assign / Associate Email with Project Endpoint.
+ * Explicitly associates an email from the emails repository with a project document.
+ */
+export const assignEmail = onRequest(
+  {
+    region: 'europe-west2',
+    timeoutSeconds: 60,
+    cors: true,
+  },
+  async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    corsHandler(req, res, async () => {
+      if (req.method === 'OPTIONS') {
+        res.status(204).send('');
+        return;
+      }
+
+      if (req.method !== 'POST') {
+        res.status(405).json({
+          error: 'METHOD_NOT_ALLOWED',
+          message: 'Only POST requests are supported on /assignEmail.',
+        });
+        return;
+      }
+
+      const { emailId, projectId } = req.body || {};
+
+      if (!emailId || typeof emailId !== 'string' || emailId.trim() === '') {
+        res.status(400).json({
+          error: 'MISSING_EMAIL_ID',
+          message: '[FAIL FAST] Mandatory field "emailId" is missing from request body.',
+        });
+        return;
+      }
+
+      if (!projectId || typeof projectId !== 'string' || projectId.trim() === '') {
+        res.status(400).json({
+          error: 'MISSING_PROJECT_ID',
+          message: '[FAIL FAST] Mandatory field "projectId" is missing from request body.',
+        });
+        return;
+      }
+
+      try {
+        await logToFirestore(
+          'info',
+          `[assignEmail] Assigning email "${emailId}" to project "${projectId}"`,
+          { emailId, projectId },
+          'assignEmail'
+        );
+
+        const result = await executeAssignEmailToProject(projectId.trim(), {
+          emailId: emailId.trim(),
+          projectId: projectId.trim(),
+        });
+
+        if (!result.success) {
+          res.status(400).json(result);
+          return;
+        }
+
+        res.status(200).json(result);
+      } catch (err: any) {
+        await logToFirestore(
+          'error',
+          `[assignEmail] Failed to assign email: ${err?.message}`,
+          { error: err?.message, emailId, projectId },
+          'assignEmail'
+        );
+        res.status(500).json({
+          error: 'ASSIGN_EMAIL_FAILED',
+          message: err?.message || 'Failed to assign email to project.',
+        });
+      }
+    });
+  }
+);
+
+/**
+ * List Unassigned Inbox Emails Endpoint.
+ * Retrieves unassigned emails from Resend API and repository inbox.
+ */
+export const listInboxEmails = onRequest(
+  {
+    region: 'europe-west2',
+    timeoutSeconds: 60,
+    cors: true,
+  },
+  async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    corsHandler(req, res, async () => {
+      if (req.method === 'OPTIONS') {
+        res.status(204).send('');
+        return;
+      }
+
+      try {
+        const limit = req.query.limit ? Number(req.query.limit) : 25;
+        const result = await executeListUnassignedInboxEmails('', { limit });
+        res.status(200).json(result);
+      } catch (err: any) {
+        res.status(500).json({ error: err?.message || 'Failed to list inbox emails' });
+      }
+    });
+  }
+);
+
+
 

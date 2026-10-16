@@ -19,7 +19,7 @@ describe('executeAddTag', () => {
   });
 
   it('executeAddTag_newTag_appendsTagArray_test', async () => {
-    const result = await executeAddTag('project-default', { tag: 'reviewed' });
+    const result = await executeAddTag('pr-7k4x9q', { tag: 'reviewed' });
 
     expect(result.success).toBe(true);
     expect(result.data?.addedTag).toBe('reviewed');

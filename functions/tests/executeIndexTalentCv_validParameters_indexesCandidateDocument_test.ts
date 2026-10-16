@@ -12,7 +12,7 @@ describe('executeIndexTalentCv', () => {
 
     const indexSpy = vi.spyOn(vertexModule, 'indexVertexDocument').mockResolvedValue(mockIndexResponse);
 
-    const result = await executeIndexTalentCv('project-default', {
+    const result = await executeIndexTalentCv('pr-7k4x9q', {
       name: 'Marcus Smith',
       role: 'German Transcreation Specialist',
       skills: 'German, Transcreation, Marketing Copy',
@@ -41,7 +41,7 @@ describe('executeIndexTalentCv', () => {
   });
 
   it('executeIndexTalentCv_missingName_returnsExplicitError_test', async () => {
-    const result = await executeIndexTalentCv('project-default', {
+    const result = await executeIndexTalentCv('pr-7k4x9q', {
       name: '',
       role: 'Transcreation Specialist',
       skills: 'German, English',
@@ -52,7 +52,7 @@ describe('executeIndexTalentCv', () => {
   });
 
   it('executeIndexTalentCv_missingRole_returnsExplicitError_test', async () => {
-    const result = await executeIndexTalentCv('project-default', {
+    const result = await executeIndexTalentCv('pr-7k4x9q', {
       name: 'Marcus Smith',
       role: '',
       skills: 'German, English',
@@ -63,7 +63,7 @@ describe('executeIndexTalentCv', () => {
   });
 
   it('executeIndexTalentCv_missingSkills_returnsExplicitError_test', async () => {
-    const result = await executeIndexTalentCv('project-default', {
+    const result = await executeIndexTalentCv('pr-7k4x9q', {
       name: 'Marcus Smith',
       role: 'Transcreation Specialist',
       skills: '',
@@ -78,7 +78,7 @@ describe('executeIndexTalentCv', () => {
       new Error('Vertex AI document quota reached')
     );
 
-    const result = await executeIndexTalentCv('project-default', {
+    const result = await executeIndexTalentCv('pr-7k4x9q', {
       name: 'Marcus Smith',
       role: 'Transcreation Specialist',
       skills: 'German, English',

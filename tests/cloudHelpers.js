@@ -198,9 +198,45 @@ async function cleanupTestResources(testConfig = {}, {
   }
 }
 
+/**
+ * Generate a valid entity ID adhering to [a-z]{2}-[a-z0-9]{6}
+ * @param {'pr' | 'ms' | 'em' | 'ar' | 'tl'} [prefix='pr']
+ * @returns {string}
+ */
+function generateEntityId(prefix = 'pr') {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let suffix = '';
+  for (let i = 0; i < 6; i++) {
+    suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `${prefix}-${suffix}`;
+}
+
+/**
+ * Seeds a project document directly via the backend /seed endpoint.
+ * @param {Object} testConfig
+ * @param {string} [projectId='pr-7k4x9q']
+ * @returns {Promise<Object>}
+ */
+async function seedTestProject(testConfig = {}, projectId = 'pr-7k4x9q') {
+  const seedUrl = getFunctionUrl(testConfig, 'seed');
+  const res = await fetch(seedUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`[seedTestProject] Failed to seed project ${projectId}: ${res.status} ${text}`);
+  }
+  return await res.json();
+}
+
 module.exports = {
   getDb,
   getFunctionUrl,
   assertServicesRunning,
-  cleanupTestResources
+  cleanupTestResources,
+  generateEntityId,
+  seedTestProject,
 };

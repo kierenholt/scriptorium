@@ -19,7 +19,7 @@ describe('executeRenameProject', () => {
   });
 
   it('executeRenameProject_emptyTitle_returnsExplicitError_test', async () => {
-    const result = await executeRenameProject('project-default', { title: '   ' });
+    const result = await executeRenameProject('pr-7k4x9q', { title: '   ' });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Missing or empty');

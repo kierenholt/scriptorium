@@ -6,7 +6,7 @@ import { getProject, getRecentMessages, persistMessage } from './firestore';
 import { ToolCallExecution, FileAttachment } from './types';
 import { logToFirestore } from './logger';
 import { downloadBufferFromGcs } from './storage';
-
+import { generateEntityId, assertValidEntityId } from './entityId';
 
 export interface StreamCallbacks {
   onToolCallStart: (toolCall: { id: string; name: string; args: Record<string, unknown> }) => void;
@@ -19,21 +19,44 @@ const SYSTEM_INSTRUCTION = `You are Scriptorium's Project Supervisor Agent.
 Scriptorium provides a managed talent-as-a-service platform for creative, localisation, and marketing teams, curating vetted talent pools across copywriters, transcreation specialists, AI post-editors, translators, and project managers.
 Your responsibility is to assist the supervisor in viewing, managing, and mutating the current Firestore project document, and managing candidate talent.
 
+Firestore Record ID Conventions (Strict Taxonomy: [a-z]{2}-[a-z0-9]{6}):
+All system entity identifiers strictly follow the 2-letter prefix + 6-alphanumeric character convention:
+- "pr-XXXXXX": Scriptorium Project documents (e.g. pr-7k4x9q)
+- "ms-XXXXXX": Chat messages in projects/{projectId}/messages (e.g. ms-a8f3k2)
+- "em-XXXXXX": Email records in emails/{emailId} (e.g. em-v9d2m5)
+- "ar-XXXXXX": Deliverable and dossier artifacts in project.artifacts (e.g. ar-4k8x2q)
+- "tl-XXXXXX": Talent candidate CV profiles in datastore (e.g. tl-3n7w1z)
+
 Operational Guidelines:
 1. When the supervisor asks to find, source, or shortlist candidates, freelancers, or specialists:
    - Immediately invoke "searchTalentPool" with descriptive query terms and optional structured filters (minYearsExperience, vettedOnly).
    - Present candidate results clearly with their key competencies, experience, and relevance.
 2. When the supervisor asks to register, upload, index, or add a candidate/freelancer profile or CV:
    - Immediately invoke "indexTalentCv" with the candidate's name, role, skills, and optional location, yearsExperience, summary.
-3. When the user asks to modify the project specification:
+3. When the user asks to inspect or query project details or list available projects:
+   - Invoke "lookupProjectRecord" to fetch a project document by ID (e.g. "pr-7k4x9q").
+   - Invoke "listRecentProjects" to see recently active or created projects.
+4. When the user asks to modify the project specification:
    - Invoke "updateProjectLifecycleStage", "renameProjectDocument", "updateProjectBriefDescription", "addProjectRequirementTag", or "removeProjectRequirementTag".
-4. When tool execution results are returned:
+5. When tool execution results are returned:
    - Explain clearly what was done and conclude with a concise message confirming the new state.
-5. If an action is invalid or fails:
+6. If an action is invalid or fails:
    - Explain the exact error directly.
-6. When inspecting attached files or documents:
+7. When inspecting attached files or documents:
    - Carefully read the attached file content.
-   - If asked to extract specific data (e.g. an ID, code, or specific field), follow the user's formatting instructions precisely.`;
+   - If asked to extract specific data (e.g. an ID, code, or specific field), follow the user's formatting instructions precisely.
+8. When the supervisor asks to inspect, check, or read email communications, received emails, or verification tokens:
+   - Invoke "readCandidateEmailMessage" with the appropriate search query, recipient, sender, or email ID.
+   - Extract and report the requested details accurately (e.g. verification code, token, subject, or message body).
+9. When the supervisor asks to send or dispatch an email (e.g. to a candidate, client, or specific address):
+   - Invoke "sendCandidateEmailMessage" with the target recipient "to", "subject", and message "body".
+   - Confirm clearly that the email was successfully dispatched.
+10. When the supervisor asks to save, promote, or attach an uploaded file or deliverable to project artifacts:
+    - Invoke "saveProjectArtifact" with the attached file's GCS URI ("sourceFileUri"), the artifactName, and optional comment or mimeType.
+11. When the supervisor asks to retrieve a project artifact document or get its secure download URL:
+    - Invoke "getProjectArtifactDownloadUrl" with the query, artifactId, or comment phrase.
+    - Invoke "lookupProjectArtifact" to inspect artifact details without generating a download URL.
+    - Present the returned timeboxed download URL and markdown link clearly in your response.`;
 
 export async function runAgentConversation(
   projectId: string,
@@ -45,6 +68,7 @@ export async function runAgentConversation(
   if (!projectId || projectId.trim() === '') {
     throw new Error('[FAIL FAST] projectId cannot be empty in runAgentConversation.');
   }
+  assertValidEntityId(projectId.trim(), 'pr');
   if (!userPrompt || userPrompt.trim() === '') {
     throw new Error('[FAIL FAST] userPrompt cannot be empty in runAgentConversation.');
   }
@@ -85,6 +109,9 @@ export async function runAgentConversation(
           data: buffer.toString('base64'),
         },
       });
+      userParts.push({
+        text: `[Attached File: "${fileAttachment.filename || 'uploaded_document'}" | GCS URI: "${fileAttachment.uri}"]`,
+      });
     } else {
       throw new Error(`[FAIL FAST] Unsupported file attachment URI scheme: "${fileAttachment.uri}". Must be a "gs://" URI.`);
     }
@@ -96,7 +123,7 @@ export async function runAgentConversation(
   contents.push({ role: 'user', parts: userParts });
 
   // Persist user prompt immediately
-  const userMsgId = `msg-user-${Date.now()}`;
+  const userMsgId = generateEntityId('ms');
   await persistMessage(projectId, {
     id: userMsgId,
     sender: 'user',
@@ -220,7 +247,7 @@ export async function runAgentConversation(
   }
 
   // Persist agent response
-  const agentMsgId = `msg-agent-${Date.now()}`;
+  const agentMsgId = generateEntityId('ms');
   await persistMessage(projectId, {
     id: agentMsgId,
     sender: 'agent',

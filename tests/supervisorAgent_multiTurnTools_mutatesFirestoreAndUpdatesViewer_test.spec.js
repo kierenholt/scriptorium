@@ -1,11 +1,11 @@
 const { test, expect, assertServicesRunning } = require('./loggingHelper.js');
-const { cleanupTestResources } = require('./cloudHelpers.js');
+const { cleanupTestResources, generateEntityId, seedTestProject } = require('./cloudHelpers.js');
 
 test.describe('Supervisor Agent Multi-Turn E2E Integration Flow', () => {
   let testProjectId;
 
   test.beforeEach(() => {
-    testProjectId = `project-e2e-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    testProjectId = generateEntityId('pr');
   });
 
   test.afterEach(async ({ testConfig }) => {
@@ -20,19 +20,18 @@ test.describe('Supervisor Agent Multi-Turn E2E Integration Flow', () => {
     // MANDATORY PROJECT RULE: AT THE BEGINNING OF EACH TEST, THE TEST MUST ASSERT THAT THE SERVICES ARE RUNNING
     await assertServicesRunning(testConfig);
 
-    // 1. Open Supervisor Console with dedicated random project ID
+    // 1. Seed dedicated project in Firestore via API
+    await seedTestProject(testConfig, testProjectId);
+
+    // 2. Open Supervisor Console with dedicated random project ID
     await page.goto(`/?projectId=${testProjectId}`);
 
-    // 2. Click "Seed / Reset Project" in header to initialize record in Firestore
-    const seedBtn = page.locator('[data-testid="seed-project-btn"]');
-    await expect(seedBtn).toBeVisible();
-    await seedBtn.click();
-
-    // 3. Verify left 70% Raw JSON Viewer displays initial seeded project state
-    const rawViewer = page.locator('[data-testid="project-raw-json"]');
-    await expect(rawViewer).toBeVisible({ timeout: 15000 });
-    await expect(rawViewer).toContainText(testProjectId);
-    await expect(rawViewer).toContainText('"status": "draft"');
+    // 3. Verify Structured Inspector on the left (70% pane) displays initial seeded project state
+    const titleHeading = page.locator('[data-testid="project-title-heading"]');
+    await expect(titleHeading).toBeVisible({ timeout: 15000 });
+    const statusBadge = page.locator('[data-testid="project-status-badge"]');
+    await expect(statusBadge).toBeVisible();
+    await expect(statusBadge).toContainText('draft');
 
     const chatInput = page.locator('[data-testid="chat-input"]');
     const sendBtn = page.locator('[data-testid="chat-send-btn"]');
@@ -50,9 +49,9 @@ test.describe('Supervisor Agent Multi-Turn E2E Integration Flow', () => {
     const statusToolBadge = page.locator('[data-testid="tool-call-badge"]').filter({ hasText: /(updateProjectLifecycleStage|updateStatus)/ }).first();
     await expect(statusToolBadge).toBeVisible({ timeout: 30000 });
 
-    // Verify left 70% Raw JSON Viewer reactively updates without page reload
-    await expect(rawViewer).toContainText('"title": "Omega Initiative"', { timeout: 20000 });
-    await expect(rawViewer).toContainText('"status": "in_progress"', { timeout: 20000 });
+    // Verify Structured Inspector reactively updates without page reload
+    await expect(titleHeading).toContainText('Omega Initiative', { timeout: 20000 });
+    await expect(statusBadge).toContainText('in_progress', { timeout: 20000 });
 
     // Wait for Turn 1 to complete (chat input re-enabled once streaming ends)
     await expect(chatInput).toBeEnabled({ timeout: 30000 });
@@ -70,8 +69,8 @@ test.describe('Supervisor Agent Multi-Turn E2E Integration Flow', () => {
     const statusCompletedBadge = page.locator('[data-testid="tool-call-badge"]').filter({ hasText: /(updateProjectLifecycleStage|updateStatus)/ }).last();
     await expect(statusCompletedBadge).toBeVisible({ timeout: 30000 });
 
-    // Verify left 70% Raw JSON Viewer reactively reflects completed status
-    await expect(rawViewer).toContainText('"status": "completed"', { timeout: 20000 });
+    // Verify Structured Inspector reactively reflects completed status
+    await expect(statusBadge).toContainText('completed', { timeout: 20000 });
 
     // Wait for Turn 2 agent confirmation to conclude (chat input re-enabled)
     await expect(chatInput).toBeEnabled({ timeout: 30000 });

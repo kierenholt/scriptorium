@@ -3,7 +3,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { test, expect, assertServicesRunning } = require('./loggingHelper.js');
-const { getFunctionUrl, getDb, cleanupTestResources } = require('./cloudHelpers.js');
+const { getFunctionUrl, getDb, cleanupTestResources, generateEntityId } = require('./cloudHelpers.js');
 const { GoogleAuth } = require('google-auth-library');
 
 /**
@@ -131,7 +131,7 @@ test.describe('Agent File Upload & Data Extraction Endpoint Tests', () => {
 
     // 2. Generate a unique 8-digit ID and unique project ID
     const random8Digits = String(Math.floor(10000000 + Math.random() * 90000000));
-    testProjectId = `proj-test-${Date.now()}-${random8Digits}`;
+    testProjectId = generateEntityId('pr');
 
     // 3. Seed project record in Firestore via /seed
     const seedUrl = getFunctionUrl(testConfig, 'seed');
@@ -202,7 +202,7 @@ test.describe('Agent File Upload & Data Extraction Endpoint Tests', () => {
 
     // 2. Generate a unique 8-digit ID and unique project ID
     const random8Digits = String(Math.floor(10000000 + Math.random() * 90000000));
-    testProjectId = `proj-test-${Date.now()}-${random8Digits}`;
+    testProjectId = generateEntityId('pr');
 
     // 3. Seed project record in Firestore via /seed
     const seedUrl = getFunctionUrl(testConfig, 'seed');

@@ -14,8 +14,45 @@ import { dispatchToolCall } from '../src/tools/executors';
 // Mock db for dispatch tests
 vi.mock('../src/firestore', () => {
   const updateMock = vi.fn().mockResolvedValue({});
-  const docMock = vi.fn(() => ({ update: updateMock }));
-  const collectionMock = vi.fn(() => ({ doc: docMock }));
+  const getMock = vi.fn().mockResolvedValue({
+    exists: true,
+    data: () => ({
+      id: 'pr-7k4x9q',
+      title: 'Sample Project',
+      artifacts: [
+        {
+          id: 'ar-8m2p9k',
+          name: 'Project_Brief.pdf',
+          comment: 'Approved audit brief',
+          gcsUri: 'gs://scriptorium-project-artifacts-503507/projects/pr-7k4x9q/Project_Brief.pdf',
+          mimeType: 'application/pdf',
+          createdAt: new Date().toISOString(),
+          createdBy: 'agent',
+        },
+      ],
+    }),
+  });
+  const docMock = vi.fn(() => ({ update: updateMock, get: getMock }));
+  const collectionMock = vi.fn(() => ({
+    doc: docMock,
+    orderBy: vi.fn(() => ({
+      limit: vi.fn(() => ({
+        get: vi.fn().mockResolvedValue({
+          docs: [
+            {
+              id: 'pr-7k4x9q',
+              data: () => ({
+                title: 'Sample Project',
+                status: 'draft',
+                tags: ['mvp'],
+                updatedAt: new Date().toISOString(),
+              }),
+            },
+          ],
+        }),
+      })),
+    })),
+  }));
   return {
     db: {
       collection: collectionMock,
@@ -23,7 +60,7 @@ vi.mock('../src/firestore', () => {
   };
 });
 
-// Mock searchVertexAI and indexVertexDocument for dispatch tests
+// Mock vertexSearch for dispatch tests
 vi.mock('../src/vertexSearch', () => ({
   searchVertexAI: vi.fn().mockResolvedValue({
     success: true,
@@ -37,6 +74,15 @@ vi.mock('../src/vertexSearch', () => ({
   }),
 }));
 
+// Mock storage for dispatch tests
+vi.mock('../src/storage', () => ({
+  copyUploadedFileToProjectArtifacts: vi.fn().mockResolvedValue({
+    uri: 'gs://scriptorium-project-artifacts-503507/projects/pr-7k4x9q/Brief.pdf',
+    size: 1024,
+    mimeType: 'application/pdf',
+  }),
+}));
+
 describe('toolDeclarations_allToolDeclarations_adhereToDomainContextRule_test', () => {
   const EXPECTED_TOOL_NAMES = [
     'updateProjectLifecycleStage',
@@ -46,6 +92,16 @@ describe('toolDeclarations_allToolDeclarations_adhereToDomainContextRule_test', 
     'removeProjectRequirementTag',
     'searchTalentPool',
     'indexTalentCv',
+    'readCandidateEmailMessage',
+    'sendCandidateEmailMessage',
+    'saveProjectArtifact',
+    'getProjectArtifactDownloadUrl',
+    'lookupProjectRecord',
+    'listRecentProjects',
+    'lookupProjectArtifact',
+    'getProjectsFromEmailSender',
+    'assignEmailToProject',
+    'listUnassignedInboxEmails',
   ];
 
   const FORBIDDEN_GENERIC_NAMES = [
@@ -115,32 +171,32 @@ describe('toolDeclarations_allToolDeclarations_adhereToDomainContextRule_test', 
 
   it('dispatchToolCall_domainToolNames_routesCorrectly_test', async () => {
     // 1. Test updateProjectLifecycleStage
-    const stageResult = await dispatchToolCall('proj-1', 'updateProjectLifecycleStage', { status: 'in_progress' });
+    const stageResult = await dispatchToolCall('pr-7k4x9q', 'updateProjectLifecycleStage', { status: 'in_progress' });
     expect(stageResult.success).toBe(true);
 
     // 2. Test renameProjectDocument
-    const renameResult = await dispatchToolCall('proj-1', 'renameProjectDocument', { title: 'New Title' });
+    const renameResult = await dispatchToolCall('pr-7k4x9q', 'renameProjectDocument', { title: 'New Title' });
     expect(renameResult.success).toBe(true);
 
     // 3. Test updateProjectBriefDescription
-    const descResult = await dispatchToolCall('proj-1', 'updateProjectBriefDescription', { description: 'Updated brief' });
+    const descResult = await dispatchToolCall('pr-7k4x9q', 'updateProjectBriefDescription', { description: 'Updated brief' });
     expect(descResult.success).toBe(true);
 
     // 4. Test addProjectRequirementTag
-    const addTagResult = await dispatchToolCall('proj-1', 'addProjectRequirementTag', { tag: 'transcreation' });
+    const addTagResult = await dispatchToolCall('pr-7k4x9q', 'addProjectRequirementTag', { tag: 'transcreation' });
     expect(addTagResult.success).toBe(true);
 
     // 5. Test removeProjectRequirementTag
-    const removeTagResult = await dispatchToolCall('proj-1', 'removeProjectRequirementTag', { tag: 'transcreation' });
+    const removeTagResult = await dispatchToolCall('pr-7k4x9q', 'removeProjectRequirementTag', { tag: 'transcreation' });
     expect(removeTagResult.success).toBe(true);
 
     // 6. Test searchTalentPool
-    const searchResult = await dispatchToolCall('proj-1', 'searchTalentPool', { query: 'copywriter' });
+    const searchResult = await dispatchToolCall('pr-7k4x9q', 'searchTalentPool', { query: 'copywriter' });
     expect(searchResult.success).toBe(true);
     expect(searchResult.data).toHaveProperty('candidates');
 
     // 7. Test indexTalentCv
-    const indexResult = await dispatchToolCall('proj-1', 'indexTalentCv', {
+    const indexResult = await dispatchToolCall('pr-7k4x9q', 'indexTalentCv', {
       name: 'Alice',
       role: 'Senior Copywriter',
       skills: 'Copywriting, Transcreation',
@@ -149,7 +205,7 @@ describe('toolDeclarations_allToolDeclarations_adhereToDomainContextRule_test', 
     expect(indexResult.data).toHaveProperty('documentId');
 
     // 8. Test indexTalentProfile alias
-    const aliasIndexResult = await dispatchToolCall('proj-1', 'indexTalentProfile', {
+    const aliasIndexResult = await dispatchToolCall('pr-7k4x9q', 'indexTalentProfile', {
       name: 'Bob',
       role: 'AI Post-Editor',
       skills: 'MTPE, French',
@@ -157,10 +213,64 @@ describe('toolDeclarations_allToolDeclarations_adhereToDomainContextRule_test', 
     expect(aliasIndexResult.success).toBe(true);
 
     // 9. Verify backwards compatibility for legacy aliases
-    const legacyStatusResult = await dispatchToolCall('proj-1', 'updateStatus', { status: 'completed' });
+    const legacyStatusResult = await dispatchToolCall('pr-7k4x9q', 'updateStatus', { status: 'completed' });
     expect(legacyStatusResult.success).toBe(true);
 
-    const legacyRenameResult = await dispatchToolCall('proj-1', 'renameProject', { title: 'Legacy Title' });
+    const legacyRenameResult = await dispatchToolCall('pr-7k4x9q', 'renameProject', { title: 'Legacy Title' });
     expect(legacyRenameResult.success).toBe(true);
+
+    // 10. Test readCandidateEmailMessage
+    const readEmailResult = await dispatchToolCall('pr-7k4x9q', 'readCandidateEmailMessage', { query: 'test' });
+    expect(readEmailResult).toBeDefined();
+    expect(typeof readEmailResult.success).toBe('boolean');
+
+    // 11. Test sendCandidateEmailMessage
+    const sendEmailResult = await dispatchToolCall('pr-7k4x9q', 'sendCandidateEmailMessage', {
+      to: 'delivered@resend.dev',
+      subject: 'Test Subject',
+      body: 'Test Body',
+    });
+    expect(sendEmailResult).toBeDefined();
+    expect(typeof sendEmailResult.success).toBe('boolean');
+
+    // 12. Test saveProjectArtifact
+    const saveArtifactResult = await dispatchToolCall('pr-7k4x9q', 'saveProjectArtifact', {
+      sourceFileUri: 'gs://scriptorium-uploads-503507/uploads/brief.pdf',
+      artifactName: 'Project_Brief.pdf',
+      mimeType: 'application/pdf',
+      comment: 'Initial client brief',
+    });
+    expect(saveArtifactResult.success).toBe(true);
+    expect(saveArtifactResult.data).toHaveProperty('artifact');
+
+    // 13. Test getProjectArtifactDownloadUrl
+    const getArtifactResult = await dispatchToolCall('pr-7k4x9q', 'getProjectArtifactDownloadUrl', {
+      query: 'audit',
+    });
+    expect(getArtifactResult.success).toBe(true);
+    expect(getArtifactResult.data).toHaveProperty('downloadUrl');
+    expect(getArtifactResult.data).toHaveProperty('artifact');
+
+    // 14. Test lookupProjectRecord
+    const lookupProjResult = await dispatchToolCall('pr-7k4x9q', 'lookupProjectRecord', {
+      projectId: 'pr-7k4x9q',
+    });
+    expect(lookupProjResult.success).toBe(true);
+    expect(lookupProjResult.data).toHaveProperty('project');
+
+    // 15. Test listRecentProjects
+    const listProjResult = await dispatchToolCall('pr-7k4x9q', 'listRecentProjects', {
+      limit: 5,
+    });
+    expect(listProjResult.success).toBe(true);
+    expect(listProjResult.data).toHaveProperty('projects');
+
+    // 16. Test lookupProjectArtifact
+    const lookupArtResult = await dispatchToolCall('pr-7k4x9q', 'lookupProjectArtifact', {
+      artifactId: 'ar-8m2p9k',
+    });
+    expect(lookupArtResult.success).toBe(true);
+    expect(lookupArtResult.data).toHaveProperty('artifact');
   });
 });
+

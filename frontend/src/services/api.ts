@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { ProjectEmail } from '../types';
 
 export interface ChatStreamCallbacks {
   onToolCallStart?: (tool: { id: string; name: string; args: Record<string, unknown> }) => void;
@@ -9,12 +10,52 @@ export interface ChatStreamCallbacks {
 }
 
 /**
+ * Upload a file document to Google Cloud Storage via the backend /upload endpoint.
+ */
+export async function uploadFile(
+  file: File
+): Promise<{ success: boolean; uri: string; filename: string; mimeType: string; size: number }> {
+  const url = `${config.apiBaseUrl}/upload`;
+
+  const base64Content = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(base64);
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      filename: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      content: base64Content,
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Upload failed (${response.status}): ${errText}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Stream a supervisor chat message to the Cloud Function backend via SSE.
  */
 export async function sendChatMessage(
   projectId: string,
   message: string,
-  callbacks: ChatStreamCallbacks
+  callbacks: ChatStreamCallbacks,
+  fileAttachment?: { uri: string; mimeType?: string }
 ): Promise<void> {
   const url = `${config.apiBaseUrl}/chat`;
 
@@ -24,7 +65,12 @@ export async function sendChatMessage(
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ projectId, message }),
+      body: JSON.stringify({
+        projectId,
+        message,
+        fileUri: fileAttachment?.uri,
+        fileMimeType: fileAttachment?.mimeType,
+      }),
     });
 
     if (!response.ok) {
@@ -115,4 +161,54 @@ export async function seedProject(projectId: string = config.projectId): Promise
     const errorText = await response.text();
     throw new Error(`Failed to seed project (${response.status}): ${errorText}`);
   }
+}
+
+/**
+ * Assign an email to a specific project via /assignEmail endpoint.
+ */
+export async function assignEmailToProject(
+  emailId: string,
+  projectId: string
+): Promise<{ success: boolean; message: string; data?: any }> {
+  const url = `${config.apiBaseUrl}/assignEmail`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ emailId, projectId }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to assign email (${response.status}): ${errorText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Fetch unassigned incoming emails from the inbox via /listInboxEmails endpoint.
+ */
+export async function fetchInboxEmails(limit: number = 25): Promise<ProjectEmail[]> {
+  const url = `${config.apiBaseUrl}/listInboxEmails?limit=${limit}`;
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch inbox emails (${response.status})`);
+  }
+
+  const result = await response.json();
+  const rawList = result.data?.emails || [];
+  return rawList.map((e: any) => ({
+    id: e.emailId || e.id,
+    resendId: e.resendId,
+    direction: e.direction || 'inbound',
+    from: e.from || '',
+    to: e.to || '',
+    subject: e.subject || '(No Subject)',
+    body: e.body || '',
+    timestamp: e.receivedAt || e.sentAt || new Date().toISOString(),
+  }));
 }

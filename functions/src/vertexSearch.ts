@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { GoogleAuth } from 'google-auth-library';
 import { serverConfig } from './config';
+import { generateEntityId } from './entityId';
 
 async function getAccessToken(): Promise<string> {
   const credPath = path.join(os.homedir(), '.config/gcloud/application_default_credentials.json');
@@ -210,10 +211,9 @@ export async function indexVertexDocument(params: IndexTalentCvParams): Promise<
   const datastoreId = serverConfig.vertexSearchDatastoreId;
   const projectId = serverConfig.projectId;
 
-  const sanitizedSlug = params.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').slice(0, 24);
   const documentId = params.documentId && params.documentId.trim() !== ''
     ? params.documentId.trim()
-    : `talent_${sanitizedSlug}_${Date.now()}`;
+    : generateEntityId('tl');
 
   const hostname = `${location}-discoveryengine.googleapis.com`;
   const docUrl = `https://${hostname}/v1/projects/${projectNumber}/locations/${location}/collections/default_collection/dataStores/${datastoreId}/branches/0/documents?documentId=${encodeURIComponent(documentId)}`;

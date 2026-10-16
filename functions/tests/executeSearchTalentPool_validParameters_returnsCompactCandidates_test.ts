@@ -25,7 +25,7 @@ describe('executeSearchTalentPool', () => {
 
     const searchSpy = vi.spyOn(vertexModule, 'searchVertexAI').mockResolvedValue(mockSearchResults);
 
-    const result = await executeSearchTalentPool('project-default', {
+    const result = await executeSearchTalentPool('pr-7k4x9q', {
       query: 'copywriter',
       minYearsExperience: 5,
       vettedOnly: true,
@@ -59,7 +59,7 @@ describe('executeSearchTalentPool', () => {
   });
 
   it('executeSearchTalentPool_missingQuery_returnsExplicitError_test', async () => {
-    const result = await executeSearchTalentPool('project-default', {
+    const result = await executeSearchTalentPool('pr-7k4x9q', {
       query: '',
     });
 
@@ -73,7 +73,7 @@ describe('executeSearchTalentPool', () => {
       new Error('Discovery Engine rate limit exceeded')
     );
 
-    const result = await executeSearchTalentPool('project-default', {
+    const result = await executeSearchTalentPool('pr-7k4x9q', {
       query: 'transcreation specialist',
     });
 

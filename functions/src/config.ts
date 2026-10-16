@@ -20,4 +20,11 @@ export const serverConfig = {
   vertexSearchLocation: process.env.VERTEX_SEARCH_LOCATION || 'eu',
   storageBucket: requireEnv('AI_SEARCHABLE_BUCKET'),
   uploadsBucket: requireEnv('AI_UPLOADS_BUCKET'),
+  projectArtifactsBucket: requireEnv('PROJECT_ARTIFACTS_BUCKET'),
+  functionsBaseUrl:
+    process.env.FUNCTIONS_BASE_URL ||
+    (process.env.FUNCTIONS_EMULATOR
+      ? `http://127.0.0.1:5001/${process.env.GCP_PROJECT_ID || 'scriptorium-503507'}/europe-west2`
+      : `https://europe-west2-${process.env.GCP_PROJECT_ID || 'scriptorium-503507'}.cloudfunctions.net`),
+  defaultProjectId: process.env.VITE_PROJECT_ID || process.env.DEFAULT_PROJECT_ID || 'pr-7k4x9q',
 };

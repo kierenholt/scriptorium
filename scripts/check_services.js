@@ -8,12 +8,50 @@
 const http = require('http');
 const net = require('net');
 const fs = require('fs');
+const path = require('path');
+
+function loadEnvFile(filePath) {
+  const fullPath = path.resolve(__dirname, '..', filePath);
+  const env = {};
+  if (fs.existsSync(fullPath)) {
+    const content = fs.readFileSync(fullPath, 'utf8');
+    content.split(/\r?\n/).forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const index = trimmed.indexOf('=');
+      if (index > 0) {
+        const key = trimmed.substring(0, index).trim();
+        let value = trimmed.substring(index + 1).trim();
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.substring(1, value.length - 1);
+        }
+        if (value !== '') {
+          env[key] = value;
+        }
+      }
+    });
+  }
+  return env;
+}
+
+const rootEnv = loadEnvFile('.env');
+const localEnv = loadEnvFile('.env.local');
+Object.assign(process.env, rootEnv, localEnv);
+
+const frontendPort = parseInt(process.env.PORT || '3000', 10);
+const frontendUrl = process.env.LOCAL_BASE_URL || `http://localhost:${frontendPort}`;
+const functionsPort = parseInt(process.env.FUNCTIONS_PORT || '5001', 10);
+const functionsUrl = process.env.VITE_API_BASE_URL || `http://127.0.0.1:${functionsPort}`;
+const firestoreHost = process.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1';
+const firestorePort = parseInt(process.env.VITE_FIRESTORE_EMULATOR_PORT || '8080', 10);
+const firestoreUrl = `http://${firestoreHost}:${firestorePort}`;
 
 const SERVICES = [
-  { name: 'Supervisor Frontend (Vite)', port: 3000, url: 'http://localhost:3000' },
-  { name: 'Functions Emulator', port: 5001, url: 'http://127.0.0.1:5001' },
-  { name: 'Firestore Emulator', port: 8080, url: 'http://127.0.0.1:8080' },
+  { name: 'Supervisor Frontend (Vite)', port: frontendPort, url: frontendUrl },
+  { name: 'Functions Emulator', port: functionsPort, url: functionsUrl },
+  { name: 'Firestore Emulator', port: firestorePort, url: firestoreUrl },
 ];
+
 
 function isPortListeningInProc(port) {
   try {

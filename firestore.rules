@@ -10,6 +10,11 @@ service cloud.firestore {
       }
     }
 
+    // Emails repository (inbound/outbound tracking)
+    match /emails/{emailId} {
+      allow read, write: if true;
+    }
+
     // Function logs telemetry (read-only for clients/dashboards, admin writes only)
     match /function_logs/{document} {
       allow read: if true;

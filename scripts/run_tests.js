@@ -24,6 +24,44 @@ const ROOT_DIR = path.resolve(__dirname, '../');
 const TESTS_DIR = path.resolve(ROOT_DIR, 'tests');
 const CONFIG_PATH = path.resolve(TESTS_DIR, 'playwright.config.js');
 
+function loadEnvFile(filePath) {
+  const fullPath = path.resolve(ROOT_DIR, filePath);
+  const env = {};
+  if (fs.existsSync(fullPath)) {
+    const content = fs.readFileSync(fullPath, 'utf8');
+    content.split(/\r?\n/).forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const index = trimmed.indexOf('=');
+      if (index > 0) {
+        const key = trimmed.substring(0, index).trim();
+        let value = trimmed.substring(index + 1).trim();
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.substring(1, value.length - 1);
+        }
+        if (value !== '') {
+          env[key] = value;
+        }
+      }
+    });
+  }
+  return env;
+}
+
+function applyEnv(profile = 'local') {
+  if (profile === 'production') {
+    const prodEnv = loadEnvFile('.env.production');
+    Object.assign(process.env, prodEnv);
+    process.env.TARGET_ENV = 'production';
+    process.env.NODE_ENV = 'production';
+    process.env.VITE_USE_EMULATORS = '0';
+  } else {
+    const rootEnv = loadEnvFile('.env');
+    const localEnv = loadEnvFile('.env.local');
+    Object.assign(process.env, rootEnv, localEnv);
+  }
+}
+
 function ask(question, defaultVal = '') {
   return new Promise((resolve) => {
     const rl = readline.createInterface({
@@ -166,16 +204,25 @@ async function verifyLocalService(name, port, defaultUrl) {
  * Pre-flight health check verifying connectivity across Scriptorium components.
  */
 async function runSystemHealthCheck(envProfile = 'local') {
+  applyEnv(envProfile);
   const isProd = envProfile === 'production';
 
   console.log(`\n🏥 [HEALTH CHECK] Performing pre-flight health check (${envProfile.toUpperCase()})...`);
   console.log('─'.repeat(70));
 
   if (!isProd) {
+    const frontendPort = parseInt(process.env.PORT || '3000', 10);
+    const frontendUrl = process.env.LOCAL_BASE_URL || `http://localhost:${frontendPort}`;
+    const functionsPort = parseInt(process.env.FUNCTIONS_PORT || '5001', 10);
+    const functionsUrl = process.env.VITE_API_BASE_URL || `http://127.0.0.1:${functionsPort}`;
+    const firestoreHost = process.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1';
+    const firestorePort = parseInt(process.env.VITE_FIRESTORE_EMULATOR_PORT || '8080', 10);
+    const firestoreUrl = `http://${firestoreHost}:${firestorePort}`;
+
     const services = [
-      { name: 'Supervisor Web App (Vite)', port: 3000, url: process.env.LOCAL_BASE_URL || 'http://localhost:3000' },
-      { name: 'Functions Emulator', port: 5001, url: process.env.VITE_API_BASE_URL || 'http://127.0.0.1:5001' },
-      { name: 'Firestore Emulator', port: 8080, url: `http://${process.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080'}` },
+      { name: 'Supervisor Web App (Vite)', port: frontendPort, url: frontendUrl },
+      { name: 'Functions Emulator', port: functionsPort, url: functionsUrl },
+      { name: 'Firestore Emulator', port: firestorePort, url: firestoreUrl },
     ];
 
     let allHealthy = true;
@@ -290,29 +337,22 @@ async function runPlaywrightCommand(testPath, envProfile, extraFlags = []) {
 
     if (child.stdout) {
       child.stdout.on('data', (data) => {
-        output += data.toString();
+        const text = data.toString();
+        output += text;
+        process.stdout.write(text);
       });
     }
 
     if (child.stderr) {
       child.stderr.on('data', (data) => {
-        output += data.toString();
+        const text = data.toString();
+        output += text;
+        process.stderr.write(text);
       });
     }
 
     child.on('close', (code) => {
       const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
-
-      // Display output if test failed or in verbose mode
-      if (code !== 0) {
-        console.log(`\n🚀 Executing: npx ${args.join(' ')}\n`);
-        console.log('─'.repeat(70) + '\n');
-        console.log(output);
-        console.log('\n' + '─'.repeat(70));
-      } else {
-        console.log(output);
-      }
-
       resolve({ code, durationSec });
     });
   });
@@ -399,10 +439,26 @@ async function main() {
   }
 
   if (!selectedOption) {
-    const match = options.find(o => o.value && o.value.toLowerCase().includes(testChoiceInput.toLowerCase()));
-    if (match) {
-      selectedOption = match;
-    } else {
+    // 1. Exact match on filename, basename, or full relative path
+    const exactMatch = options.find((o) => {
+      if (!o.fileObj) return false;
+      const baseName = o.fileObj.name.replace(/\.spec\.[jt]s$|\.test\.[jt]s$/, '');
+      const input = testChoiceInput.toLowerCase();
+      return (
+        o.fileObj.name.toLowerCase() === input ||
+        baseName.toLowerCase() === input ||
+        o.value.toLowerCase() === input
+      );
+    });
+
+    // 2. Partial match
+    const partialMatch = options.find(
+      (o) => o.value && o.value.toLowerCase().includes(testChoiceInput.toLowerCase())
+    );
+
+    selectedOption = exactMatch || partialMatch;
+
+    if (!selectedOption) {
       console.error(`Error: Invalid test selection "${testChoiceInput}".`);
       process.exit(1);
     }

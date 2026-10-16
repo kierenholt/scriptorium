@@ -14,7 +14,10 @@ lib/
 .env
 .env.local
 .env.*.local
+.env.production
+.env.*.production
 !.env.example
+
 
 # Firebase
 .firebase/
@@ -28,3 +31,6 @@ ui-debug.log*
 .idea/
 .DS_Store
 *.swp
+
+# Tools & external binaries
+/tools/

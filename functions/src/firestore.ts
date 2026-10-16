@@ -1,6 +1,8 @@
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { ProjectDocument, ChatMessageRecord } from './types';
+import { serverConfig } from './config';
+import { assertValidEntityId } from './entityId';
 
 // Ensure Firebase Admin is initialized once
 if (getApps().length === 0) {
@@ -12,12 +14,14 @@ db.settings({ ignoreUndefinedProperties: true });
 
 /**
  * Fetch a project document from Firestore.
- * Throws explicit error if projectId is missing.
+ * Throws explicit error if projectId is missing or violates the pr- entity ID convention.
  */
 export async function getProject(projectId: string): Promise<ProjectDocument | null> {
   if (!projectId || projectId.trim() === '') {
     throw new Error('[FAIL FAST] Mandatory parameter "projectId" is missing from getProject lookup.');
   }
+
+  assertValidEntityId(projectId, 'pr');
 
   const docSnap = await db.collection('projects').doc(projectId).get();
   if (!docSnap.exists) {
@@ -29,7 +33,9 @@ export async function getProject(projectId: string): Promise<ProjectDocument | n
 /**
  * Seed or reset the default project document.
  */
-export async function seedDefaultProject(projectId: string = 'project-default'): Promise<ProjectDocument> {
+export async function seedDefaultProject(projectId: string = serverConfig.defaultProjectId): Promise<ProjectDocument> {
+  assertValidEntityId(projectId, 'pr');
+
   const now = new Date().toISOString();
   const defaultData: ProjectDocument = {
     id: projectId,
@@ -37,11 +43,13 @@ export async function seedDefaultProject(projectId: string = 'project-default'):
     description: 'This is the initial project record for the Scriptorium supervisor MVP.',
     status: 'draft',
     tags: ['mvp', 'supervisor', 'starter'],
+    artifacts: [],
+    emails: [],
     createdAt: now,
     updatedAt: now,
     metadata: {
       environment: 'development',
-      managedBy: 'Gemini 2.5 Flash Agent',
+      managedBy: 'Gemini 3.8 Flash Agent',
     },
   };
 
@@ -56,6 +64,9 @@ export async function persistMessage(projectId: string, message: ChatMessageReco
   if (!projectId) {
     throw new Error('[FAIL FAST] Mandatory parameter "projectId" is missing from persistMessage.');
   }
+
+  assertValidEntityId(projectId, 'pr');
+  assertValidEntityId(message.id, 'ms');
 
   await db
     .collection('projects')
@@ -75,6 +86,8 @@ export async function getRecentMessages(projectId: string, limitCount: number = 
   if (!projectId) {
     throw new Error('[FAIL FAST] Mandatory parameter "projectId" is missing from getRecentMessages.');
   }
+
+  assertValidEntityId(projectId, 'pr');
 
   const snapshot = await db
     .collection('projects')

@@ -7,10 +7,12 @@ import {
   onSnapshot,
   query,
   orderBy,
+  limit,
+  getDocs,
   Unsubscribe,
 } from 'firebase/firestore';
 import { config } from '../config';
-import { ProjectDocument, ChatMessage } from '../types';
+import { ProjectDocument, ChatMessage, ProjectEmail } from '../types';
 
 // Initialize Firebase client
 const app = getApps().length === 0 ? initializeApp(config.firebase) : getApp();
@@ -87,3 +89,107 @@ export function subscribeToMessages(
     }
   );
 }
+
+/**
+ * Real-time subscription to unassigned inbox emails in Firestore.
+ */
+export function subscribeToInboxEmails(
+  onUpdate: (emails: ProjectEmail[]) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  const emailsRef = collection(db, 'emails');
+
+  return onSnapshot(
+    emailsRef,
+    (snapshot) => {
+      const emails: ProjectEmail[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data();
+        if (!data.projectId) {
+          emails.push({
+            id: d.id,
+            resendId: data.resendId,
+            direction: data.direction || 'inbound',
+            from: data.from || '',
+            to: data.to || '',
+            subject: data.subject || '(No Subject)',
+            body: data.body || data.content || '',
+            timestamp: data.sentAt || data.createdAt || '',
+            assignedAt: data.assignedAt,
+            projectId: data.projectId,
+          });
+        }
+      });
+      // Sort newest first
+      emails.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      onUpdate(emails);
+    },
+    (err) => {
+      onError(err);
+    }
+  );
+}
+
+/**
+ * Real-time subscription to ALL emails in Firestore (for the Emails Hub).
+ */
+export function subscribeToAllEmails(
+  onUpdate: (emails: ProjectEmail[]) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  const emailsRef = collection(db, 'emails');
+
+  return onSnapshot(
+    emailsRef,
+    (snapshot) => {
+      const emails: ProjectEmail[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data();
+        emails.push({
+          id: d.id,
+          resendId: data.resendId,
+          direction: data.direction || 'inbound',
+          from: data.from || '',
+          to: data.to || '',
+          subject: data.subject || '(No Subject)',
+          body: data.body || data.content || '',
+          timestamp: data.sentAt || data.createdAt || '',
+          assignedAt: data.assignedAt,
+          projectId: data.projectId,
+        });
+      });
+      // Sort newest first
+      emails.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      onUpdate(emails);
+    },
+    (err) => {
+      onError(err);
+    }
+  );
+}
+
+/**
+ * Fetch a list of recent projects from Firestore for project picker.
+ */
+export async function fetchRecentProjectsList(limitCount: number = 20): Promise<Array<{ id: string; title: string; status?: string }>> {
+  try {
+    const projectsRef = collection(db, 'projects');
+    const q = query(projectsRef, limit(limitCount));
+    const snapshot = await getDocs(q);
+    const results: Array<{ id: string; title: string; status?: string }> = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      results.push({
+        id: docSnap.id,
+        title: data.title || docSnap.id,
+        status: data.status,
+      });
+    });
+    return results;
+  } catch (err) {
+    console.warn('Failed to fetch recent projects list:', err);
+    return [];
+  }
+}
+
+

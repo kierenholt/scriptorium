@@ -131,19 +131,33 @@ flowchart TD
 ### 2. Core Subsystems
 
 #### A. Supervisor SPA (`frontend/`)
-- **Layout**: 70/30 split view layout.
-  - **Left Panel (70%)**: `ProjectViewer.tsx` displays the raw JSON of `projects/{projectId}` via real-time Firestore `onSnapshot`. Includes pulse animation on mutations and copy-to-clipboard functionality.
-  - **Right Panel (30%)**: `ChatPanel.tsx` handles natural language conversations with the supervisor agent via Server-Sent Events (SSE). Streams tokens, status tickers, and tool execution badges (`ToolCallBadge.tsx`).
-- **Header**: Displays connection status (`Firestore Live`), active project ID, GCP project name, and a one-click `Seed / Reset Project` button.
+- **Layout & Multi-Project Tab Architecture**:
+  - **Horizontal TabBar (`TabBar.tsx`)**: Mounted beneath the header, supporting pinned system tabs and dynamic project tabs:
+    - **Pinned Emails Tab**: Shows unassigned incoming email badge count and switches to the dedicated `EmailHub` full-width triage workspace.
+    - **Dynamic Project Tabs**: Displays clean project titles (e.g. "Infosys") without IDs, with active indicator and tab close buttons (`✖`). Tabs can be closed down to 0, cleanly falling back to the pinned Emails tab without resurrecting ghost project IDs.
+    - **New Tab Trigger (`+`)**: Opens `OpenProjectModal.tsx` allowing the user to select from recent Firestore projects, input an existing `pr-xxxxxx` ID, or auto-generate and seed a new project.
+    - **Startup & Tab Lifecycle**: On first visit (empty session/localStorage), the app queries Firestore for existing projects and opens the most recent valid project tab; if the database is empty, it lands cleanly on the pinned Emails tab rather than hardcoding a phantom project ID.
+  - **Project Tab Sessions (`ProjectTabSession.tsx`)**: Each project tab mounts an independent session keeping its own Firestore document and message listeners active in memory (`hidden` when inactive). This preserves background SSE agent streaming and local input state seamlessly across tab switches:
+    - **Left Panel (70%)**: `ProjectViewer.tsx` displays the structured project inspector featuring a two-column sub-layout: a left-hand domain navigation sub-sidebar (Overview & Status, Brief & Scope, Requirements & Tags, Deliverables & Files, Communications) and a central inspector pane with reactive cards, status pills, count badges, and an in-header toggle to switch to the formatted Raw JSON view (`data-testid="project-raw-json"`). If a project document does not yet exist in Firestore, it presents an actionable **"Initialize / Seed Project"** button to bootstrap the document in place with one click.
+    - **Right Panel (30%)**: `ChatPanel.tsx` handles natural language conversations with the supervisor agent via Server-Sent Events (SSE). Streams tokens, status tickers, and tool execution badges (`ToolCallBadge.tsx`).
+  - **Email Hub Workspace (`EmailHub.tsx`)**: Split-pane triage workspace for inbound and outbound messages:
+    - **Left List**: Filterable inbox (All, Unassigned Inbox, Assigned) with search, timestamps, and sender previews.
+- **Header (`Header.tsx`)**: Streamlined single-row header (`h-12`) featuring the Scriptorium terminal logo, title, clean "Supervisor" badge, and live Firestore connection status pill. Redundant project ID and GCP indicators have been removed from the header as active projects are explicitly managed and identified in the TabBar directly below.
+
 
 #### B. Cloud Functions Backend (`functions/`)
 - **Runtime**: Node.js 20, TypeScript, Firebase Functions v2, deployed strictly to `europe-west2`.
 - **Endpoints**:
   - `POST /chat`: Initiates an SSE stream (`text/event-stream`). Emits `tool_call_start`, `tool_call_result`, `agent_text`, and `done` events. Supports optional `fileUri` and `fileMimeType` for multimodal document inspection.
   - `POST /upload`: Accepts base64 encoded files (`{ filename, mimeType, content }`), uploads to `gs://scriptorium-uploads-503507/uploads/`, and returns the GCS URI.
-  - `GET/POST /seed`: Idempotently creates or resets the specified project document (default: `projects/project-default`).
+  - `GET/POST /seed`: Idempotently creates or resets the specified project document (default: `projects/pr-7k4x9q`).
+  - `POST /emailService`: Dispatches outbound transactional emails (thank you, acceptance, renewals, credentials, notifications) across the platform via Resend API or local MailDev SMTP.
   - `POST /searchTalent`: Accepts a semantic candidate search query and optional metadata filters, calling the Discovery Engine API with GoogleAuth credentials.
+  - `GET /downloadArtifact`: Validates timeboxed HMAC SHA-256 signature and streams project artifact files directly from GCS (`gs://scriptorium-project-artifacts-503507/projects/{projectId}/{filename}`).
 - **Tools Engine (`functions/src/tools/`)**:
+  - `lookupProjectRecord`: Looks up and retrieves full Firestore project document details by project ID (`pr-xxxxxx`).
+  - `listRecentProjects`: Retrieves summary of recently active or created projects (IDs, titles, status, tags).
+  - `lookupProjectArtifact`: Looks up saved project deliverable, brief, or dossier artifact metadata by artifact ID (`ar-xxxxxx`) or name.
   - `updateProjectLifecycleStage`: Transitions project lifecycle state (`draft`, `in_progress`, `blocked`, `completed`).
   - `renameProjectDocument`: Renames the project document title.
   - `updateProjectBriefDescription`: Updates the textual scope and project brief.
@@ -151,10 +165,18 @@ flowchart TD
   - `removeProjectRequirementTag`: Removes tags using `FieldValue.arrayRemove`.
   - `searchTalentPool`: Queries vetted linguists and creative candidates via Discovery Engine / Vertex AI Search, supporting structured experience/vetting filters and token-efficient compact candidate cards.
   - `indexTalentCv`: Registers and indexes candidate CV profiles directly into the Discovery Engine datastore branch for rapid search availability.
-  - *Translation Adapter*: `executors.ts` maps domain-named agent tool calls to underlying generic Firestore and Vertex operations.
+  - `readCandidateEmailMessage`: Inspects, searches, and reads received or dispatched candidate/hirer email communications from Resend or Firestore `emails` repository.
+  - `sendCandidateEmailMessage`: Dispatches transactional outbound email communications to candidates or hirers via Resend API, logs records into Firestore `emails` repository, and automatically appends the message into `projects/{projectId}.emails`.
+  - `getProjectsFromEmailSender`: Identifies and lists all Scriptorium projects that have corresponded with, received messages from, or contacted a specific candidate or email sender address.
+  - `assignEmailToProject`: Explicitly moves, associates, and stores an inbound or unassigned email message into a specific Scriptorium project document (`projects/{projectId}.emails`).
+  - `listUnassignedInboxEmails`: Inspects and lists unassigned incoming candidate or client emails waiting in the inbox that have not yet been associated with any Scriptorium project.
+  - `saveProjectArtifact`: Promotes uploaded briefs, dossiers, or deliverables from `scriptorium-uploads-503507` into the permanent project artifacts bucket (`gs://scriptorium-project-artifacts-503507/projects/{projectId}/{filename}`) and registers the artifact metadata record and optional comment in Firestore `projects/{projectId}.artifacts`.
+  - `getProjectArtifactDownloadUrl`: Looks up a saved project artifact by ID, name, or comment, and generates a secure timeboxed download URL.
+  - *Modular Tools Engine*: Concrete executors are partitioned by domain into `projectExecutors.ts`, `talentExecutors.ts`, and `emailExecutors.ts` with shared types in `types.ts`. The unified facade and dispatcher `executors.ts` (`dispatchToolCall`) translates domain-named agent tool calls to the respective domain executors.
 
 #### C. Cloud Storage & Candidate Repository
 - **Uploads Bucket**: `gs://scriptorium-uploads-503507` (Region: `europe-west2`, Standard storage class, uniform bucket-level access) for user/agent uploaded briefs, dossiers, and resumes.
+- **Project Artifacts Bucket**: `gs://scriptorium-project-artifacts-503507` (Region: `europe-west2`, Standard storage class, uniform bucket-level access) for permanent client deliverables, approved briefs, and dossiers organized under `projects/{projectId}/{filename}`.
 - **Searchable Bucket**: `gs://scriptorium-searchable` (Region: `europe-west2`) containing CV PDFs (`cvs/*.pdf`) and candidate index metadata (`metadata.jsonl`).
 - **Semantic Talent Search Datastore**: `talent-search-connector_1785766300992_gcs_store` (Location: `eu` / `eu-discoveryengine.googleapis.com`).
 
@@ -162,6 +184,49 @@ flowchart TD
 - All Cloud Functions invoke `setupFirestoreLogging('backend')`, automatically intercepting `console.log`, `console.info`, `console.warn`, and `console.error`.
 - Log records are written to the Firestore `function_logs` collection with `timestamp` (server timestamp), `service`, `level`, `message`, `details` (sensitive keys masked), and a 24-hour TTL (`expireAt`).
 - All Playwright test fixtures (`tests/loggingHelper.js`) unconditionally tail and print recent `function_logs` upon test teardown.
+
+#### E. Email Communications & Project Association (`functions/src/tools/emailExecutors.ts`, `frontend/src/components/InboxDrawer.tsx`)
+- **Resend Integration**: Dispatches transactional emails via Resend API using verified sender `info@seamcode.co.uk`.
+- **Project Email Schema (`ProjectEmail`)**:
+  - `id`: `em-[a-z0-9]{6}`
+  - `direction`: `'inbound' | 'outbound'`
+  - `from`, `to`, `subject`, `body`: text / recipient metadata
+  - `timestamp`: ISO timestamp
+  - `assignedAt`?: ISO timestamp
+  - `resendId`?: string
+- **Automatic Outbound Association**: When the supervisor agent dispatches an outbound email via `sendCandidateEmailMessage`, it writes to `emails/{emailId}` and automatically appends the record into `projects/{projectId}.emails`.
+- **Explicit Inbound Association**: Incoming emails sit unassigned in the Resend/Firestore inbox (`emails` where `projectId == null`). They are visible and triaged directly from the pinned **Emails** tab (`EmailHub.tsx`) with real-time unassigned badge counter and 1-click project assignment.
+
+- **Agent Discovery & Move Tools**:
+  - `getProjectsFromEmailSender`: Discovers all projects associated with a given sender address.
+  - `assignEmailToProject`: Explicitly moves and attaches an email into `projects/{projectId}.emails`.
+  - `listUnassignedInboxEmails`: Lists unassigned incoming messages for agent triage.
+- **Fail-Fast Credential Isolation**:
+  - `RESEND_API_KEY` is loaded strictly from environment files (`.env`, `.env.local`, `.env.production`). No hardcoded API keys or fallback strings are permitted in production or test files. Missing keys trigger explicit error responses (`MISSING_RESEND_API_KEY`).
+  - Standalone binaries (e.g. `tools/resend`) are excluded via `.gitignore`.
+
+#### F. Strict Firestore Record ID Conventions & Dedicated Agent Lookup Tools (`functions/src/entityId.ts`)
+- **Strict Format**: `^[a-z]{2}-[a-z0-9]{6}$` (two lowercase letters, hyphen, followed by six lowercase alphanumeric characters).
+  - Entropy: $36^6 \approx 2.17 \times 10^9$ combinations, drastically reducing collision probability compared to pure numeric digits.
+- **Strict Entity Prefix Taxonomy**:
+  | Prefix | Entity / Collection | Description | Example |
+  | :--- | :--- | :--- | :--- |
+  | **`pr-`** | `projects/{projectId}` | Core project specifications, briefs, and status documents | `pr-7k4x9q` |
+  | **`ms-`** | `projects/{projectId}/messages/{messageId}` | Chat conversation turns and streaming tool interactions | `ms-a8f3k2` |
+  | **`em-`** | `emails/{emailId}` | Inbound/outbound email communications & audit records | `em-v9d2m5` |
+  | **`ar-`** | `project.artifacts[].id` | Deliverables, approved briefs, and dossiers in project repo | `ar-4k8x2q` |
+  | **`tl-`** | Talent Datastore / CV Profiles | Candidate CV profiles registered in Discovery Engine / datastore | `tl-3n7w1z` |
+- **Exemptions**:
+  - `function_logs/{document}` is explicitly exempt from the `[a-z]{2}-[a-z0-9]{6}` rule because it is high-throughput backend telemetry not queried or cited by conversational agents.
+- **Fail-Fast Validation**:
+  - `assertValidEntityId(id, prefix?)` throws explicit errors immediately if any endpoint, agent call, or Firestore mutation receives a malformed ID.
+- **Dedicated Agent Discovery & Lookup Tools**:
+  - Rather than guessing IDs, agents discover existing entities using dedicated tools:
+    1. `lookupProjectRecord`: Fetches complete document state for a project by `projectId` (`pr-xxxxxx`).
+    2. `listRecentProjects`: Lists recent projects with IDs, titles, status, and tags.
+    3. `lookupProjectArtifact`: Inspects deliverable metadata by `artifactId` (`ar-xxxxxx`) or filename.
+    4. `readCandidateEmailMessage`: Inspects and searches email records by `emailId` (`em-xxxxxx`) or keyword.
+
 
 ---
 
@@ -172,6 +237,8 @@ scriptorium/
 ├── .agents/
 │   └── AGENTS.md                  # Agent directives and operational rules
 ├── .env.example                   # Environment configuration template
+├── .env.local                     # Local development & emulator configuration
+├── .env.production                # Live GCP production configuration
 ├── .firebaserc                    # Firebase project binding (scriptorium-503507)
 ├── firebase.json                  # Firebase deployment & emulator configuration
 ├── firestore.rules                # Security rules for projects & function_logs
@@ -180,33 +247,55 @@ scriptorium/
 ├── scripts/
 │   ├── check_services.js          # Pre-flight health checker for local services
 │   ├── provision_uploads_bucket.js # Provisions GCS uploads bucket in europe-west2
+│   ├── provision_project_artifacts_bucket.js # Provisions GCS project artifacts bucket in europe-west2
 │   ├── run_tests.js               # Interactive and CLI Playwright test runner
 │   └── tail_logs.js               # Real-time Firestore function_logs tailing tool
+├── gcloud/                        # Microservices & Outbound Handlers
+│   └── email/                     # Transactional Email Service (Express / CommonJS)
+│       ├── config.js              # Environment & Firestore telemetry configuration
+│       ├── emailDispatcher.js     # Dispatch helper routing to Resend API / MailDev
+│       ├── emailTemplates.js      # Email templates & EmailService class
+│       └── index.js               # Microservice entry point & action handlers
+├── tools/                         # External CLI tooling
+│   └── resend                     # Resend CLI executable binary
 ├── tests/                         # E2E integration test suite (Playwright)
 │   ├── cloudHelpers.js            # Firestore & Functions emulator helper utilities
 │   ├── loggingHelper.js           # Playwright fixture with mandatory log tailing
 │   ├── playwright.config.js       # Playwright config (port 3000, 120s timeout)
 │   ├── testSearchHelpers.js       # Discovery Engine test lifecycle & GCS injection
 │   ├── chat_fileUpload_returnsExtractedId_test.spec.js # Endpoint test: GCS upload + 8-digit ID extraction
+│   ├── email_sendAndAgentReadBack_verifiesDifferentEmail_test.spec.js # Endpoint test: Email send + agent read back
+│   ├── supervisorAgent_emailSendAndReceive_verifiesWithResendApi_test.spec.js # Browser E2E: Email send & receive prompt testing
 │   ├── searchTalent_validQuery_returnsVertexSearchResults_test.spec.js
+│   ├── supervisorAgent_fileUpload_attachesAndStreamsExtractedId_test.spec.js # Browser E2E: File upload + chat stream
 │   ├── supervisorConsole_initialLoad_rendersSplitLayoutAndControls_test.spec.js
+│   ├── supervisorConsole_projectTabs_opensSwitchesAndViewsEmails_test.spec.js # Browser E2E: Tabbed workspace, project tabs, Email Hub & modal
+│   ├── supervisorConsole_incomingEmailInbox_assignsEmailAndUpdatesProjectViewer_test.spec.js # Browser E2E: Incoming email inbox, manual assignment & agent project lookup
+│   ├── supervisorAgent_projectArtifactLifecycle_uploadsPersistsAndDownloadsWithSignedUrl_test.spec.js # Browser E2E: Artifact lifecycle, persistence & secure download URL
+│   ├── supervisorConsole_createNewProjectAndAddTag_tagAppearsInInspector_test.spec.js # Browser E2E: UI project creation, tab navigation & agent tag addition
 │   └── supervisorAgent_multiTurnTools_mutatesFirestoreAndUpdatesViewer_test.spec.js
 ├── functions/                     # Backend Cloud Functions (Node.js 20 / TypeScript)
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── vitest.config.ts           # Vitest configuration for backend tests
 │   ├── src/
-│   │   ├── index.ts               # HTTP endpoints (/chat, /seed, /searchTalent, /upload)
+│   │   ├── index.ts               # HTTP endpoints (/chat, /seed, /searchTalent, /upload, /downloadArtifact)
 │   │   ├── config.ts              # Fail-fast server configuration validator
-│   │   ├── types.ts               # Data models (ProjectDocument, ToolCallExecution, FileAttachment)
+│   │   ├── types.ts               # Data models (ProjectDocument, ToolCallExecution, FileAttachment, ProjectArtifact)
+│   │   ├── entityId.ts            # Centralized entity ID generator and validator ([a-z]{2}-[a-z0-9]{6})
 │   │   ├── firestore.ts           # Admin SDK client & seeding logic
 │   │   ├── storage.ts             # Cloud Storage uploads & buffer management
+│   │   ├── artifactTokens.ts      # HMAC SHA-256 timeboxed token generator & validator
 │   │   ├── logger.ts              # Centralized Firestore logging & sanitization
 │   │   ├── agent.ts               # Gemini agent loop & SSE streaming dispatcher
 │   │   ├── vertexSearch.ts        # Vertex AI Search / Discovery Engine client
 │   │   └── tools/
 │   │       ├── declarations.ts    # Native Gemini FunctionDeclaration schemas
-│   │       └── executors.ts       # Concrete Firestore mutation handlers
+│   │       ├── types.ts           # Tool parameter interfaces & execution result models
+│   │       ├── projectExecutors.ts # Firestore project lifecycle, document state, lookup & artifact handlers
+│   │       ├── talentExecutors.ts # Vertex AI Search & candidate CV indexing handlers
+│   │       ├── emailExecutors.ts  # Outbound & inbound candidate email handlers (Resend & Firestore)
+│   │       └── executors.ts       # Unified tool dispatcher and re-export facade
 │   └── tests/                     # Backend unit tests
 │       ├── parseGcsUri_invalidUri_throwsExplicitError_test.ts
 │       ├── logToFirestore_validParameters_writesToFunctionLogs_test.ts
@@ -217,6 +306,14 @@ scriptorium/
 │       ├── executeRenameProject_emptyTitle_returnsExplicitError_test.ts
 │       ├── executeSearchTalentPool_validParameters_returnsCompactCandidates_test.ts
 │       ├── executeIndexTalentCv_validParameters_indexesCandidateDocument_test.ts
+│       ├── executeSaveProjectArtifact_validParameters_savesArtifactAndUpdatesProject_test.ts
+│       ├── executeGetProjectArtifactDownloadUrl_validQuery_returnsSignedDownloadUrl_test.ts
+│       ├── executeEmailExecutors_missingParameters_returnsExplicitErrors_test.ts
+│       ├── emailConfig_refactoredModule_exportsAndExecutesCorrectly_test.ts
+│       ├── generateEntityId_allPrefixes_conformsToStrictAlphanumericFormat_test.ts
+│       ├── executeLookupTools_validParameters_retrievesProjectAndArtifactRecords_test.ts
+│       ├── executeAssignEmailToProject_validEmail_associatesEmailWithProject_test.ts
+│       ├── executeGetProjectsFromEmailSender_validSender_returnsMatchingProjects_test.ts
 │       └── toolDeclarations_allToolDeclarations_adhereToDomainContextRule_test.ts
 
 └── frontend/                      # Supervisor SPA (React 18 + Vite + Tailwind)
@@ -224,19 +321,26 @@ scriptorium/
     ├── vite.config.ts
     ├── src/
     │   ├── main.tsx               # SPA entrypoint
-    │   ├── App.tsx                # 70/30 split view container
+    │   ├── App.tsx                # Multi-project tabbed workspace container
     │   ├── config.ts              # Fail-fast frontend configuration validator
     │   ├── types.ts               # Frontend data contracts
     │   ├── components/
     │   │   ├── Header.tsx         # Connection status & seed button
+    │   │   ├── TabBar.tsx         # Pinned Emails, project tabs, + new tab trigger
+    │   │   ├── ProjectTabSession.tsx # Isolated 70/30 session maintaining memory state
     │   │   ├── ProjectViewer.tsx  # 70% pane: live JSON document viewer
     │   │   ├── ChatPanel.tsx      # 30% pane: supervisor chat & SSE feed
+    │   │   ├── EmailHub.tsx       # Dedicated full-screen email triage workspace
+    │   │   ├── InboxDrawer.tsx    # Slide-over quick triage drawer from header
+    │   │   ├── OpenProjectModal.tsx # Project picker & new project creation modal
     │   │   └── ToolCallBadge.tsx  # Visual tool execution cards
     │   ├── services/
-    │   │   ├── firebase.ts        # Client SDK setup & onSnapshot listeners
+    │   │   ├── entityId.ts        # Frontend [a-z]{2}-[a-z0-9]{6} generator & validator
+    │   │   ├── firebase.ts        # Client SDK setup, onSnapshot listeners & query helpers
     │   │   └── api.ts             # SSE stream client & REST helpers
     │   └── tests/                 # Frontend DOM unit tests
     │       ├── projectViewer_loadedProject_rendersRawJson_test.tsx
+    │       ├── tabBar_multipleTabsRendered_switchesAndClosesTabs_test.tsx
     │       └── toolCallBadge_executingState_showsExecutingBadge_test.tsx
 ```
 
@@ -360,6 +464,22 @@ cd frontend && npm run build
 ```
 
 ### 6. Environment Configuration
+- **`.env.local` (Root)**:
+  Used by Playwright test harness (`tests/playwright.config.js`), `scripts/run_tests.js`, and `scripts/check_services.js` for local emulator and dev runs:
+  - `LOCAL_BASE_URL=http://localhost:3000`
+  - `VITE_API_BASE_URL=http://127.0.0.1:5001/scriptorium-503507/europe-west2`
+  - `VITE_USE_EMULATOR=true`
+  - `VITE_FIRESTORE_EMULATOR_HOST=127.0.0.1`
+  - `VITE_FIRESTORE_EMULATOR_PORT=8080`
+  - `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080`
+  - `GCP_PROJECT_ID=scriptorium-503507`
+  - `GEMINI_API_KEY=...`
+- **`.env.production` (Root)**:
+  Used when executing against live GCP services (`node scripts/run_tests.js [test] production`):
+  - `PROD_BASE_URL=https://scriptorium-503507.web.app`
+  - `VITE_API_BASE_URL=https://europe-west2-scriptorium-503507.cloudfunctions.net`
+  - `VITE_USE_EMULATOR=false`
+  - `GCP_PROJECT_ID=scriptorium-503507`
 - **`functions/.env`**:
   ```env
   GEMINI_API_KEY=<your-google-ai-studio-api-key>
@@ -374,12 +494,12 @@ cd frontend && npm run build
   VITE_FIREBASE_API_KEY=<firebase-api-key>
   VITE_FIREBASE_AUTH_DOMAIN=scriptorium-503507.firebaseapp.com
   VITE_FIREBASE_PROJECT_ID=scriptorium-503507
-  VITE_FIREBASE_STORAGE_BUCKET=scriptorium-503507.appspot.com
   VITE_FIREBASE_MESSAGING_SENDER_ID=<sender-id>
   VITE_FIREBASE_APP_ID=<app-id>
   VITE_API_BASE_URL=http://127.0.0.1:5001/scriptorium-503507/europe-west2
-  VITE_PROJECT_ID=project-default
+  VITE_PROJECT_ID=pr-7k4x9q
   VITE_USE_EMULATOR=true
   VITE_FIRESTORE_EMULATOR_HOST=127.0.0.1
   VITE_FIRESTORE_EMULATOR_PORT=8080
   ```
+

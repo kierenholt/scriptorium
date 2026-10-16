@@ -1,11 +1,11 @@
-const { test, expect } = require('./loggingHelper.js');
-const { cleanupTestResources } = require('./cloudHelpers.js');
+const { test, expect, assertServicesRunning } = require('./loggingHelper.js');
+const { cleanupTestResources, seedTestProject } = require('./cloudHelpers.js');
 
 test.describe('Supervisor Agent Full E2E Flow', () => {
   test.afterEach(async ({ testConfig }) => {
     // Clean up test resources after run
     await cleanupTestResources(testConfig, {
-      projectIds: ['project-default']
+      projectIds: ['pr-7k4x9q']
     });
   });
 
@@ -13,20 +13,20 @@ test.describe('Supervisor Agent Full E2E Flow', () => {
     // Assert services running
     await assertServicesRunning(testConfig);
 
-    // 1. Navigate to the Supervisor Console SPA
+    // 1. Seed project document via API endpoint
+    await seedTestProject(testConfig, 'pr-7k4x9q');
 
+    // 2. Navigate to the Supervisor Console SPA
     await page.goto('/');
 
-    // 2. Click Seed / Reset Project to initialize or reset Firestore record
-    const seedBtn = page.locator('[data-testid="seed-project-btn"]');
-    await expect(seedBtn).toBeVisible();
-    await seedBtn.click();
+    // 3. Verify Structured Inspector on the left (70% pane) displays seeded project
+    const titleHeading = page.locator('[data-testid="project-title-heading"]');
+    await expect(titleHeading).toBeVisible({ timeout: 15000 });
+    await expect(titleHeading).toContainText('Scriptorium Initial Project');
 
-    // 3. Verify the Raw JSON Document Viewer on the left (70% pane) displays seeded project
-    const rawViewer = page.locator('[data-testid="project-raw-json"]');
-    await expect(rawViewer).toBeVisible({ timeout: 15000 });
-    await expect(rawViewer).toContainText('Scriptorium Initial Project');
-    await expect(rawViewer).toContainText('"status": "draft"');
+    const statusBadge = page.locator('[data-testid="project-status-badge"]');
+    await expect(statusBadge).toBeVisible();
+    await expect(statusBadge).toContainText('draft');
 
     // 4. Command the Gemini agent in the chat console
     const chatInput = page.locator('[data-testid="chat-input"]');
@@ -43,7 +43,7 @@ test.describe('Supervisor Agent Full E2E Flow', () => {
     await expect(toolBadge).toBeVisible({ timeout: 30000 });
     await expect(toolBadge).toContainText(/updateProjectLifecycleStage|updateStatus/);
 
-    // 7. Verify reactive real-time update in the Raw JSON Viewer (without page reload)
-    await expect(rawViewer).toContainText('"status": "completed"', { timeout: 20000 });
+    // 7. Verify reactive real-time update in the Structured Inspector (without page reload)
+    await expect(statusBadge).toContainText('completed', { timeout: 20000 });
   });
 });
