@@ -4,6 +4,8 @@ import { allToolDeclarations } from './tools/declarations';
 import { dispatchToolCall, ToolExecutionResult } from './tools/executors';
 import { getProject, getRecentMessages, persistMessage } from './firestore';
 import { ToolCallExecution } from './types';
+import { logToFirestore } from './logger';
+
 
 export interface StreamCallbacks {
   onToolCallStart: (toolCall: { id: string; name: string; args: Record<string, unknown> }) => void;
@@ -115,6 +117,8 @@ export async function runAgentConversation(
           args: fc.args || {},
         });
 
+        await logToFirestore('info', `[agent] Invoking tool "${fc.name}"`, { callId, tool: fc.name, args: fc.args }, 'agent');
+
         // Execute against Firestore
         const result: ToolExecutionResult = await dispatchToolCall(
           projectId,
@@ -130,6 +134,13 @@ export async function runAgentConversation(
           executionRecord.error = result.error;
         }
 
+        await logToFirestore(
+          result.success ? 'info' : 'warn',
+          `[agent] Completed tool "${fc.name}" -> ${result.success ? 'SUCCESS' : 'FAILED'}`,
+          { callId, tool: fc.name, success: result.success, error: result.error, result: result.data },
+          'agent'
+        );
+
         // Notify client of tool result
         callbacks.onToolCallResult({
           id: callId,
@@ -138,6 +149,7 @@ export async function runAgentConversation(
           result: result.data,
           error: result.error,
         });
+
 
         // Add to response parts for GenAI
         responseParts.push({

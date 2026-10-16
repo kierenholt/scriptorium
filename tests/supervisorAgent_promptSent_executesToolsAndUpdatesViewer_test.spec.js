@@ -9,8 +9,12 @@ test.describe('Supervisor Agent Full E2E Flow', () => {
     });
   });
 
-  test('supervisorAgent_promptSent_executesToolsAndUpdatesViewer_test', async ({ page }) => {
+  test('supervisorAgent_promptSent_executesToolsAndUpdatesViewer_test', async ({ page, testConfig }) => {
+    // Assert services running
+    await assertServicesRunning(testConfig);
+
     // 1. Navigate to the Supervisor Console SPA
+
     await page.goto('/');
 
     // 2. Click Seed / Reset Project to initialize or reset Firestore record

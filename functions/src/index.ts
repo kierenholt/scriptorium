@@ -3,8 +3,15 @@ import cors from 'cors';
 import { runAgentConversation } from './agent';
 import { seedDefaultProject } from './firestore';
 import { searchVertexAI } from './vertexSearch';
+import { setupFirestoreLogging, logToFirestore } from './logger';
+
+export { setupFirestoreLogging, logToFirestore } from './logger';
+
+// Automatically mirror all console.log/info/warn/error to Firestore function_logs collection
+setupFirestoreLogging('backend');
 
 const corsHandler = cors({ origin: true });
+
 
 /**
  * SSE Chat Endpoint.
@@ -61,6 +68,8 @@ export const chat = onRequest(
       res.setHeader('Connection', 'keep-alive');
       res.flushHeaders?.();
 
+      await logToFirestore('info', `[chat] Incoming request for project "${projectId}"`, { projectId, message }, 'chat');
+
       const sendEvent = (event: string, data: Record<string, unknown>) => {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
@@ -83,9 +92,11 @@ export const chat = onRequest(
           },
         });
 
+        await logToFirestore('info', `[chat] Agent conversation completed for project "${projectId}"`, { projectId }, 'chat');
         sendEvent('done', { status: 'complete' });
         res.end();
       } catch (err: any) {
+        await logToFirestore('error', `[chat] Error during agent execution: ${err?.message}`, { error: err?.message }, 'chat');
         sendEvent('error', {
           error: 'EXECUTION_FAILED',
           message: err?.message || 'Unknown error occurred during agent execution.',
@@ -120,6 +131,7 @@ export const seed = onRequest(
       const projectId = req.query.projectId as string || req.body?.projectId || 'project-default';
 
       try {
+        await logToFirestore('info', `[seed] Seeding project "${projectId}"`, { projectId }, 'seed');
         const project = await seedDefaultProject(projectId);
         res.status(200).json({
           success: true,
@@ -127,6 +139,7 @@ export const seed = onRequest(
           project,
         });
       } catch (err: any) {
+        await logToFirestore('error', `[seed] Failed to seed project "${projectId}": ${err?.message}`, { error: err?.message }, 'seed');
         res.status(500).json({
           error: 'SEED_FAILED',
           message: err?.message || 'Failed to seed default project.',
@@ -135,6 +148,7 @@ export const seed = onRequest(
     });
   }
 );
+
 
 /**
  * Vertex AI Search Endpoint.
@@ -177,19 +191,23 @@ export const searchTalent = onRequest(
       }
 
       try {
+        await logToFirestore('info', `[searchTalent] Executing candidate search query: "${query.trim()}"`, { query, filter, pageSize }, 'searchTalent');
         const searchResult = await searchVertexAI({
           query: query.trim(),
           filter: filter && typeof filter === 'string' ? filter.trim() : undefined,
           pageSize: typeof pageSize === 'number' ? pageSize : undefined,
         });
 
+        await logToFirestore('info', `[searchTalent] Search completed with ${searchResult.results?.length ?? 0} results`, { count: searchResult.results?.length ?? 0 }, 'searchTalent');
         res.status(200).json(searchResult);
       } catch (err: any) {
+        await logToFirestore('error', `[searchTalent] Error executing search: ${err?.message}`, { error: err?.message }, 'searchTalent');
         res.status(500).json({
           error: 'VERTEX_SEARCH_FAILED',
           message: err?.message || 'Error executing Vertex AI Search.',
         });
       }
+
     });
   }
 );

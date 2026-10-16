@@ -20,7 +20,7 @@
   - `scripts/tail_logs.js`: Real-time Firestore `function_logs` tailing tool.
 - `tests/`: End-to-end integration and Playwright test suite.
   - `cloudHelpers.js`: Firestore and Cloud Functions test harness helpers.
-  - `loggingHelper.js`: Playwright fixture with real-time console error interception and Firestore telemetry.
+  - `loggingHelper.js`: Playwright fixture with real-time console error interception, Firestore telemetry, and unconditional output of the `function_logs` tail upon test teardown.
   - `playwright.config.js`: Playwright configuration for local (port 3000) and production profiles.
   - `testSearchHelpers.js`: Vertex AI Search test lifecycle helpers (GCS test document upload, Discovery Engine reindex polling, and cleanup).
   - `searchTalent_validQuery_returnsVertexSearchResults_test.spec.js`: E2E test verifying test document generation with random ID, Discovery Engine reindexing, Cloud Function querying, and API result assertions.
@@ -28,15 +28,17 @@
   - `supervisorAgent_multiTurnTools_mutatesFirestoreAndUpdatesViewer_test.spec.js`: Multi-turn E2E test verifying seeding, tool badge streaming, and reactive document mutations.
 - `functions/`: Cloud Functions backend.
   - `src/index.ts`: HTTP endpoints (`/chat` with SSE, `/seed`, `/searchTalent`).
+  - `src/logger.ts`: Centralized Firestore structured telemetry (`logToFirestore`), automatic `console` interception (`setupFirestoreLogging`), and sensitive parameter masking.
   - `src/config.ts`: Fail-fast environment variable validation (`GEMINI_API_KEY`, `GCP_PROJECT_ID`, `VERTEX_SEARCH_PROJECT_NUMBER`, `VERTEX_SEARCH_DATASTORE_ID`).
   - `src/vertexSearch.ts`: Discovery Engine (Vertex AI Search) client querying `eu-discoveryengine.googleapis.com` with GoogleAuth.
-  - `src/types.ts`: Backend models (`ProjectDocument`, `ToolCallExecution`, `ChatMessageRecord`).
+  - `src/types.ts`: Backend models (`ProjectDocument`, `ToolCallExecution`, `ChatMessageRecord`, `FunctionLogEntry`).
   - `src/firestore.ts`: Firebase Admin SDK initialization, document fetchers, and seeding helpers.
   - `src/agent.ts`: Gemini agent orchestration loop, multi-turn tool handling, and streaming dispatcher.
   - `src/tools/declarations.ts`: Native Gemini `FunctionDeclaration` schemas (`updateStatus`, `renameProject`, `updateDescription`, `addTag`, `removeTag`).
   - `src/tools/executors.ts`: Concrete Firestore mutation handlers with strict parameter validation.
   - `vitest.config.ts`: Test runner configuration.
   - `tests/`: Local unit tests adhering to `methodname_initialstate_expectedbehaviour_test()` convention.
+    - `logToFirestore_validParameters_writesToFunctionLogs_test.ts`: Unit test verifying structured Firestore log entries and credential sanitization.
     - `searchVertexAI_validQuery_returnsMatchingTalents_test.ts`: Unit test for Vertex AI search client.
 - `frontend/`: Supervisor single-page application.
   - `src/App.tsx`: 70/30 split view layout with live Firestore listener synchronization.
@@ -53,11 +55,15 @@
 ## Conventions & Rules
 - **Fail Fast**: Explicit error thrown for missing required environment variables or missing required payload parameters. No silent fallbacks. No mock accounts in production paths.
 - **Service Pre-Flight Assertions (Mandatory)**: AT THE BEGINNING OF EACH TEST, THE TEST MUST ASSERT THAT THE SERVICES ARE RUNNING (`await assertServicesRunning(testConfig)`). If any service is unreachable, tests abort immediately.
+- **Firestore `function_logs` Telemetry & Test Tail Output (MANDATORY)**:
+  - All Cloud Functions log operations, endpoint invocations, and agent tool dispatches to the Firestore `function_logs` collection via global console interception (`setupFirestoreLogging('backend')`) and explicit `logToFirestore()`. Documents include `timestamp` (server timestamp), `service`, `level`, `message`, `details` (masked), and a 24-hour TTL (`expireAt`).
+  - ALL Playwright tests using `tests/loggingHelper.js` MUST unconditionally output the chronological tail of `function_logs` recorded during that test run (`where('timestamp', '>=', startTime)`). This block is printed prominently to stdout during fixture teardown and attached to test results.
 - **Gemini 3.x / Thinking Models - Thought Signatures Preservation (CRITICAL)**: When building multi-turn Gemini agents with function calling, Gemini 3.x thinking models attach an opaque `thought_signature` token to each `functionCall` part. In multi-turn tool loops, **the entire preceding model `candidate.content` MUST be echoed back untouched into the `contents` history array** (`contents.push(candidate.content)`). NEVER reconstruct or strip the model turn to only `{ functionCall: { name, args } }`, as discarding `thought_signature` triggers a fatal `400 INVALID_ARGUMENT: Function call is missing a thought_signature in functionCall parts` error from Google's API.
 - **Firestore Undefined Properties**: `db.settings({ ignoreUndefinedProperties: true })` must be enabled in `functions/src/firestore.ts` to prevent runtime document serialization failures when persisting optional message metadata (e.g. `toolCalls[].error` or `result`).
 - **Cloud Functions Build**: Always run `npm run build` from within `/functions` after modifying Cloud Functions.
 - **Testing**: Test naming convention: `methodname_initialstate_expectedbehaviour_test()`. Run local tests sequentially, one at a time. All DOM assertions use `data-testid`.
 - **Processes**: Local servers/emulators must not be started automatically; the user starts them.
+
 
 ## Developer Workflows
 

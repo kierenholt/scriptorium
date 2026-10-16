@@ -9,5 +9,11 @@ service cloud.firestore {
         allow read, write: if true;
       }
     }
+
+    // Function logs telemetry (read-only for clients/dashboards, admin writes only)
+    match /function_logs/{document} {
+      allow read: if true;
+      allow write: if false;
+    }
   }
 }

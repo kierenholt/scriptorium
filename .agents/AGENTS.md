@@ -43,3 +43,8 @@
 - In multi-turn tool loops, the preceding model `candidate.content` must be echoed back intact into the conversation history (`contents.push(candidate.content)`).
 - Never discard or strip down the model turn into a synthetic `{ functionCall: { name, args } }` object. Stripping the `thought_signature` causes a fatal API rejection: `400 INVALID_ARGUMENT: Function call is missing a thought_signature in functionCall parts`.
 
+## 8. Firestore `function_logs` Telemetry & Mandatory Test Tail Output
+- **Backend Logging**: All Cloud Functions log operational events and tool invocations to the Firestore `function_logs` collection via `setupFirestoreLogging()` console interception and `logToFirestore()` in `functions/src/logger.ts`. Each log record contains `timestamp` (server timestamp), `service`, `level`, `message`, `details` (sanitized/masked), and a 24-hour TTL (`expireAt`).
+- **Mandatory Test Tail Output**: ALL Playwright tests MUST unconditionally output the formatted tail of `function_logs` recorded during that test run (`where('timestamp', '>=', startTime)`). This is enforced in `tests/loggingHelper.js` fixture teardown for both passing and failing runs, and attached to test artifacts.
+
+

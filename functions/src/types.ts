@@ -27,3 +27,15 @@ export interface ChatMessageRecord {
   toolCalls?: ToolCallExecution[];
   timestamp: string;
 }
+
+export interface FunctionLogEntry {
+  id?: string;
+  service: string;
+  level: 'info' | 'warn' | 'error' | 'debug' | string;
+  message: string;
+  details?: Record<string, unknown> | null;
+  timestamp: any;
+  expireAt: Date;
+  executionId?: string | null;
+}
+
