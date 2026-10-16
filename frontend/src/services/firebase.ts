@@ -91,6 +91,25 @@ export function subscribeToMessages(
 }
 
 /**
+ * One-off fetch of messages subcollection documents for a project.
+ */
+export async function fetchProjectMessages(projectId: string): Promise<ChatMessage[]> {
+  if (!projectId) {
+    throw new Error('[FAIL FAST] Mandatory projectId missing in fetchProjectMessages.');
+  }
+
+  const messagesRef = collection(db, 'projects', projectId, 'messages');
+  const q = query(messagesRef, orderBy('timestamp', 'asc'));
+  const snapshot = await getDocs(q);
+
+  const messages: ChatMessage[] = [];
+  snapshot.forEach((d) => {
+    messages.push(d.data() as ChatMessage);
+  });
+  return messages;
+}
+
+/**
  * Real-time subscription to unassigned inbox emails in Firestore.
  */
 export function subscribeToInboxEmails(

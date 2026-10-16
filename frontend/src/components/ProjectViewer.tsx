@@ -11,25 +11,92 @@ import {
   Layers,
   Sparkles,
   Loader2,
+  ChevronRight,
+  Copy,
+  Check,
+  RefreshCw,
 } from 'lucide-react';
-import { ProjectDocument, ProjectStatus, ProjectArtifact, ProjectEmail } from '../types';
+import { ProjectDocument, ProjectStatus, ProjectArtifact, ProjectEmail, ChatMessage } from '../types';
 import { seedProject } from '../services/api';
+import { fetchProjectMessages } from '../services/firebase';
 
 interface ProjectViewerProps {
   projectId?: string;
   project: ProjectDocument | null;
   loading: boolean;
   error?: string | null;
+  messages?: ChatMessage[];
+  onLoadSubcollection?: (name: string) => Promise<ChatMessage[]>;
 }
 
 type SectionKey = 'overview' | 'brief' | 'tags' | 'artifacts' | 'emails';
 
-export const ProjectViewer: React.FC<ProjectViewerProps> = ({ projectId, project, loading, error }) => {
+export const ProjectViewer: React.FC<ProjectViewerProps> = ({
+  projectId,
+  project,
+  loading,
+  error,
+  messages,
+  onLoadSubcollection,
+}) => {
   const [viewMode, setViewMode] = useState<'structured' | 'raw'>('structured');
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
   const [pulse, setPulse] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
   const [seedError, setSeedError] = useState<string | null>(null);
+  const [messagesExpanded, setMessagesExpanded] = useState(false);
+  const [subcollectionLoaded, setSubcollectionLoaded] = useState(Boolean(messages && messages.length > 0));
+  const [loadingSubcollection, setLoadingSubcollection] = useState(false);
+  const [subcollectionError, setSubcollectionError] = useState<string | null>(null);
+  const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>(messages || []);
+  const [copied, setCopied] = useState(false);
+
+  // Sync if messages prop updates from parent
+  useEffect(() => {
+    if (messages && messages.length > 0) {
+      setLoadedMessages(messages);
+      setSubcollectionLoaded(true);
+    }
+  }, [messages]);
+
+  const loadSubcollectionMessages = async () => {
+    const targetProjectId = projectId || project?.id;
+    if (!targetProjectId) return;
+
+    setLoadingSubcollection(true);
+    setSubcollectionError(null);
+    try {
+      let items: ChatMessage[] = [];
+      if (onLoadSubcollection) {
+        items = await onLoadSubcollection('messages');
+      } else {
+        items = await fetchProjectMessages(targetProjectId);
+      }
+      setLoadedMessages(items);
+      setSubcollectionLoaded(true);
+    } catch (err: any) {
+      setSubcollectionError(err.message || 'Failed to load subcollection');
+    } finally {
+      setLoadingSubcollection(false);
+    }
+  };
+
+  const handleToggleSubcollection = async () => {
+    if (messagesExpanded) {
+      setMessagesExpanded(false);
+      return;
+    }
+
+    setMessagesExpanded(true);
+    if (!subcollectionLoaded) {
+      await loadSubcollectionMessages();
+    }
+  };
+
+  const handleRefreshSubcollection = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await loadSubcollectionMessages();
+  };
 
   // Flash / pulse effect when project data changes in real-time
   useEffect(() => {
@@ -48,7 +115,10 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({ projectId, project
     JSON.stringify(project?.emails),
   ]);
 
-  const jsonString = project ? JSON.stringify(project, null, 2) : '';
+  const baseJson = project ? JSON.stringify(project, null, 2) : '';
+  const baseBody = baseJson && baseJson.lastIndexOf('}') !== -1
+    ? baseJson.slice(0, baseJson.lastIndexOf('}')).trimEnd()
+    : baseJson;
 
   const getStatusBadge = (status: ProjectStatus) => {
     switch (status) {
@@ -241,15 +311,154 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({ projectId, project
             )}
           </div>
         ) : viewMode === 'raw' ? (
-          /* Raw JSON View Mode */
-          <div className="flex-1 p-4 overflow-auto">
+          /* Raw JSON View Mode with Expandable Subcollections */
+          <div className="flex-1 p-4 overflow-auto flex flex-col space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center space-x-2 text-xs text-gray-400">
+                <span className="font-mono text-gray-300">projects/{projectId || project.id}</span>
+                <span className="text-gray-600">•</span>
+                <span className="text-purple-400 font-mono">1 subcollection available</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  data-testid="toggle-all-subcollections-btn"
+                  onClick={handleToggleSubcollection}
+                  disabled={loadingSubcollection}
+                  className="px-2 py-1 text-xs rounded bg-[#21262d] hover:bg-[#30363d] text-gray-300 border border-[#30363d] transition-colors disabled:opacity-50"
+                >
+                  {messagesExpanded
+                    ? 'Collapse Subcollections'
+                    : subcollectionLoaded
+                    ? 'Expand Subcollections'
+                    : 'Load & Expand Subcollections'}
+                </button>
+                <button
+                  type="button"
+                  data-testid="copy-json-btn"
+                  onClick={async () => {
+                    const toCopy = JSON.stringify(
+                      {
+                        ...project,
+                        _subcollections: {
+                          messages: subcollectionLoaded ? loadedMessages : '[Not loaded - click expander to load]',
+                        },
+                      },
+                      null,
+                      2
+                    );
+                    try {
+                      await navigator.clipboard.writeText(toCopy);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    } catch {
+                      // Fallback if clipboard API is not available
+                    }
+                  }}
+                  className="px-2 py-1 text-xs rounded bg-[#21262d] hover:bg-[#30363d] text-gray-300 border border-[#30363d] flex items-center space-x-1 transition-colors"
+                  title="Copy full JSON with subcollections"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copied ? 'Copied!' : 'Copy JSON'}</span>
+                </button>
+              </div>
+            </div>
+
             <pre
               data-testid="project-raw-json"
-              className={`font-mono text-xs sm:text-sm p-4 rounded-lg bg-[#161b22] border transition-all duration-300 text-gray-200 overflow-x-auto leading-relaxed ${
+              className={`flex-1 font-mono text-xs sm:text-sm p-4 rounded-lg bg-[#161b22] border transition-all duration-300 text-gray-200 overflow-x-auto leading-relaxed ${
                 pulse ? 'border-emerald-500/80 shadow-lg shadow-emerald-500/10' : 'border-[#30363d]'
               }`}
             >
-              <code>{jsonString}</code>
+              <code>
+                {baseBody}
+                {',\n  '}
+                <span className="text-purple-400 font-semibold">"_subcollections"</span>
+                {': {\n    '}
+                <span className="text-blue-400 font-semibold">"messages"</span>
+                {': '}
+                <button
+                  type="button"
+                  data-testid="subcollection-messages-toggle"
+                  onClick={handleToggleSubcollection}
+                  disabled={loadingSubcollection}
+                  className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded bg-[#21262d] hover:bg-[#30363d] text-blue-400 hover:text-blue-300 border border-[#30363d] cursor-pointer text-xs align-middle transition-colors font-sans select-none disabled:opacity-60"
+                >
+                  {loadingSubcollection ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                  ) : (
+                    <ChevronRight
+                      className={`w-3.5 h-3.5 transition-transform duration-150 ${
+                        messagesExpanded ? 'rotate-90' : ''
+                      }`}
+                    />
+                  )}
+                  <span>subcollection</span>
+                  {subcollectionLoaded ? (
+                    <span className="text-gray-400 text-[11px]">
+                      ({loadedMessages.length} {loadedMessages.length === 1 ? 'doc' : 'docs'})
+                    </span>
+                  ) : (
+                    <span className="text-amber-400/90 text-[11px] font-medium">
+                      (click to load)
+                    </span>
+                  )}
+                  <span className="text-gray-500 text-[10px]">
+                    {loadingSubcollection
+                      ? '[loading...]'
+                      : messagesExpanded
+                      ? '[click to collapse]'
+                      : subcollectionLoaded
+                      ? '[click to expand]'
+                      : '[load & expand]'}
+                  </span>
+                </button>
+                {subcollectionLoaded && (
+                  <button
+                    type="button"
+                    data-testid="reload-subcollection-messages-btn"
+                    onClick={handleRefreshSubcollection}
+                    disabled={loadingSubcollection}
+                    className="inline-flex items-center p-0.5 text-gray-400 hover:text-gray-200 transition-colors ml-1 align-middle disabled:opacity-50"
+                    title="Reload subcollection documents"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${loadingSubcollection ? 'animate-spin text-blue-400' : ''}`} />
+                  </button>
+                )}
+                {loadingSubcollection ? (
+                  <div
+                    data-testid="subcollection-messages-loading"
+                    className="text-gray-400 pl-6 my-1 font-mono italic text-xs flex items-center space-x-2"
+                  >
+                    <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+                    <span>/* Loading messages subcollection documents from Firestore... */</span>
+                  </div>
+                ) : subcollectionError ? (
+                  <div
+                    data-testid="subcollection-messages-error"
+                    className="text-red-400 pl-6 my-1 font-mono text-xs"
+                  >
+                    /* Error loading subcollection: {subcollectionError} */
+                  </div>
+                ) : messagesExpanded ? (
+                  <div
+                    data-testid="subcollection-messages-content"
+                    className="text-emerald-400/90 pl-6 my-1 border-l-2 border-purple-500/30 ml-4 py-1"
+                  >
+                    {JSON.stringify(loadedMessages, null, 2)}
+                  </div>
+                ) : (
+                  <span
+                    data-testid="subcollection-messages-collapsed"
+                    className="text-gray-500 text-xs ml-2 italic font-mono"
+                  >
+                    {subcollectionLoaded
+                      ? `/* ${loadedMessages.length} documents (collapsed) */`
+                      : '/* [not loaded - click to fetch] */'}
+                  </span>
+                )}
+                {'\n  }\n}'}
+              </code>
             </pre>
           </div>
         ) : (

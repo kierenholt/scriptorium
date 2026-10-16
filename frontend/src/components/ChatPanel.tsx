@@ -224,13 +224,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ projectId, persistedMessag
               <div className="flex items-center space-x-1.5 text-[11px] text-gray-400 mb-1 px-1">
                 {msg.sender === 'user' ? (
                   <>
-                    <span className="font-semibold text-gray-300">Supervisor</span>
+                    <span className="font-semibold text-blue-300">Supervisor</span>
                     <User className="w-3 h-3 text-blue-400" />
                   </>
                 ) : (
                   <>
                     <Bot className="w-3 h-3 text-purple-400" />
-                    <span className="font-semibold text-gray-300">Agent</span>
+                    <span className="font-semibold text-purple-300">Agent</span>
                   </>
                 )}
               </div>
@@ -239,7 +239,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ projectId, persistedMessag
                 className={`max-w-[90%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed ${
                   msg.sender === 'user'
                     ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-[#0d1117] text-gray-200 border border-[#30363d] shadow-sm w-full'
+                    : 'bg-[#1c1836] text-gray-100 border border-purple-500/30 shadow-sm w-full'
                 }`}
               >
                 {/* File Attachment Chip */}
@@ -266,10 +266,20 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ projectId, persistedMessag
 
                 {/* Text Content */}
                 {msg.content ? (
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                  <p className="whitespace-pre-wrap">
+                    {msg.content.split(/(\*\*[^*]+\*\*)/g).map((part, idx) =>
+                      part.startsWith('**') && part.endsWith('**') ? (
+                        <strong key={idx} className="font-semibold text-white">
+                          {part.slice(2, -2)}
+                        </strong>
+                      ) : (
+                        part
+                      )
+                    )}
+                  </p>
                 ) : (
                   msg.sender === 'agent' && isStreaming && (
-                    <span className="inline-flex items-center space-x-1 text-gray-400 italic">
+                    <span className="inline-flex items-center space-x-1 text-purple-300 italic">
                       <Loader2 className="w-3 h-3 animate-spin text-purple-400" />
                       <span>{statusMessage || 'Processing...'}</span>
                     </span>
@@ -280,13 +290,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ projectId, persistedMessag
           ))
         )}
 
-        {/* Live status ticker */}
-        {isStreaming && statusMessage && (
-          <div className="flex items-center space-x-2 text-xs text-purple-400 bg-purple-950/20 border border-purple-800/30 px-3 py-1.5 rounded-md">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            <span className="font-medium">{statusMessage}</span>
-          </div>
-        )}
 
         {/* Error notification */}
         {errorText && (

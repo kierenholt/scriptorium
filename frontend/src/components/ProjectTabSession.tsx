@@ -63,7 +63,13 @@ export const ProjectTabSession: React.FC<ProjectTabSessionProps> = ({
       data-testid={`project-session-${projectId}`}
       className={isActive ? 'flex-1 flex flex-col md:flex-row overflow-hidden relative' : 'hidden'}
     >
-      <ProjectViewer projectId={projectId} project={project} loading={loading} error={error} />
+      <ProjectViewer
+        projectId={projectId}
+        project={project}
+        loading={loading}
+        error={error}
+        messages={messages}
+      />
       <ChatPanel projectId={projectId} persistedMessages={messages} />
     </div>
   );
