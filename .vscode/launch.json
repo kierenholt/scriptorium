@@ -1,0 +1,45 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Frontend: Dev Server",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "Backend: Firebase Emulators",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["firebase", "emulators:start"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "Backend: Functions Watch (TypeScript)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/functions",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "watch"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack: Emulators + Frontend",
+      "configurations": [
+        "Backend: Firebase Emulators",
+        "Frontend: Dev Server"
+      ],
+      "stopAll": true
+    }
+  ]
+}

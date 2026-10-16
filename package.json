@@ -1,0 +1,24 @@
+{
+  "name": "scriptorium",
+  "version": "1.0.0",
+  "description": "Scriptorium Agentic Project Supervisory Console",
+  "private": true,
+  "scripts": {
+    "test": "node scripts/run_tests.js",
+    "test:e2e": "node scripts/run_tests.js",
+    "test:install": "playwright install chromium",
+    "test:unit": "npm --prefix functions test",
+    "logs": "node scripts/tail_logs.js",
+    "logs:tail": "node scripts/tail_logs.js",
+    "logs:local": "node scripts/tail_logs.js local",
+    "build:functions": "npm --prefix functions run build",
+    "build:frontend": "npm --prefix frontend run build"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.10.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0"
+  }
+}
