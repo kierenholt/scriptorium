@@ -169,3 +169,94 @@ export async function searchVertexAI(params: SearchTalentParams): Promise<Search
     results,
   };
 }
+
+export interface IndexTalentCvParams {
+  documentId?: string;
+  name: string;
+  role: string;
+  skills: string;
+  location?: string;
+  yearsExperience?: number;
+  summary?: string;
+}
+
+export interface IndexTalentCvResponse {
+  success: boolean;
+  documentId: string;
+  message: string;
+}
+
+/**
+ * Indexes a candidate CV or talent profile into the GCP Discovery Engine (Vertex AI Search) datastore.
+ * 
+ * @param params Candidate data including name, role, skills, location, yearsExperience, summary.
+ * @returns Index confirmation with document ID.
+ */
+export async function indexVertexDocument(params: IndexTalentCvParams): Promise<IndexTalentCvResponse> {
+  if (!params.name || typeof params.name !== 'string' || params.name.trim() === '') {
+    throw new Error('[FAIL FAST] Mandatory candidate parameter "name" must be a non-empty string.');
+  }
+  if (!params.role || typeof params.role !== 'string' || params.role.trim() === '') {
+    throw new Error('[FAIL FAST] Mandatory candidate parameter "role" must be a non-empty string.');
+  }
+  if (!params.skills || typeof params.skills !== 'string' || params.skills.trim() === '') {
+    throw new Error('[FAIL FAST] Mandatory candidate parameter "skills" must be a non-empty string.');
+  }
+
+  const token = await getAccessToken();
+
+  const location = serverConfig.vertexSearchLocation;
+  const projectNumber = serverConfig.vertexSearchProjectNumber;
+  const datastoreId = serverConfig.vertexSearchDatastoreId;
+  const projectId = serverConfig.projectId;
+
+  const sanitizedSlug = params.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').slice(0, 24);
+  const documentId = params.documentId && params.documentId.trim() !== ''
+    ? params.documentId.trim()
+    : `talent_${sanitizedSlug}_${Date.now()}`;
+
+  const hostname = `${location}-discoveryengine.googleapis.com`;
+  const docUrl = `https://${hostname}/v1/projects/${projectNumber}/locations/${location}/collections/default_collection/dataStores/${datastoreId}/branches/0/documents?documentId=${encodeURIComponent(documentId)}`;
+
+  const payload = {
+    id: documentId,
+    jsonData: JSON.stringify({
+      name: params.name.trim(),
+      role: params.role.trim(),
+      skills: params.skills.trim(),
+      location: params.location?.trim() || undefined,
+      years_experience: params.yearsExperience !== undefined ? Number(params.yearsExperience) : undefined,
+      summary: params.summary?.trim() || undefined,
+      searchable: true,
+      vetted: true,
+    }),
+  };
+
+  const response = await fetch(docUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'x-goog-user-project': projectId,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let errorDetails = '';
+    try {
+      const errJson = (await response.json()) as any;
+      errorDetails = errJson?.error?.message || JSON.stringify(errJson);
+    } catch {
+      errorDetails = await response.text();
+    }
+    throw new Error(`[Vertex AI Document Index Error] HTTP ${response.status}: ${errorDetails}`);
+  }
+
+  return {
+    success: true,
+    documentId,
+    message: `Candidate "${params.name.trim()}" successfully indexed into Vertex AI datastore with ID "${documentId}". Indexing propagation may take 1-2 minutes to be searchable.`,
+  };
+}
+

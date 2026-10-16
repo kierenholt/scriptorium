@@ -1,4 +1,7 @@
 const { Firestore } = require('@google-cloud/firestore');
+const net = require('net');
+const http = require('http');
+const fs = require('fs');
 
 /**
  * Returns an initialized Firestore instance for testing based on testConfig.
@@ -39,6 +42,90 @@ function getFunctionUrl(testConfig = {}, functionName = '') {
 }
 
 /**
+ * Helper to check if a TCP port is in LISTEN state in /proc/net/tcp or tcp6.
+ */
+function isPortListeningInProc(port) {
+  try {
+    for (const file of ['/proc/net/tcp', '/proc/net/tcp6']) {
+      if (!fs.existsSync(file)) continue;
+      const content = fs.readFileSync(file, 'utf8');
+      const lines = content.trim().split('\n').slice(1);
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts[3] === '0A') {
+          const portHex = parts[1].split(':')[1];
+          if (parseInt(portHex, 16) === port) return true;
+        }
+      }
+    }
+  } catch {}
+  return false;
+}
+
+/**
+ * Direct TCP socket connection probe.
+ */
+function probeTcp(port, host = '127.0.0.1', timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once('error', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.connect(port, host);
+  });
+}
+
+/**
+ * HTTP request probe.
+ */
+function probeHttp(url, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    try {
+      const u = new URL(url);
+      const req = http.request(
+        {
+          hostname: u.hostname,
+          port: u.port,
+          path: u.pathname || '/',
+          method: 'GET',
+          timeout: timeoutMs,
+        },
+        () => resolve(true)
+      );
+      req.once('timeout', () => {
+        req.destroy();
+        resolve(false);
+      });
+      req.once('error', () => resolve(false));
+      req.end();
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * Resilient multi-method service verification (TCP -> HTTP -> /proc).
+ */
+async function verifyLocalService(name, port, defaultUrl) {
+  if (await probeTcp(port, '127.0.0.1')) return true;
+  if (await probeTcp(port, '::1')) return true;
+  if (await probeHttp(defaultUrl)) return true;
+  if (isPortListeningInProc(port)) return true;
+  return false;
+}
+
+/**
  * MANDATORY PROJECT RULE:
  * AT THE BEGINNING OF EACH TEST, THE TEST MUST ASSERT THAT THE SERVICES ARE RUNNING.
  * Throws an explicit error immediately if any required service is unreachable.
@@ -59,37 +146,25 @@ async function assertServicesRunning(testConfig = {}) {
     return;
   }
 
-  const frontendUrl = testConfig.baseURL || 'http://localhost:3000';
-  const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
-  const functionsUrl = 'http://127.0.0.1:5001';
-
-  // 1. Assert Frontend is running
-  try {
-    const res = await fetch(frontendUrl, { method: 'GET', signal: AbortSignal.timeout(3000) });
-    if (!res) throw new Error('No response received');
-  } catch (err) {
+  // Multi-method verification for local services
+  const isFrontendRunning = await verifyLocalService('Supervisor Frontend', 3000, testConfig.baseURL || 'http://localhost:3000');
+  if (!isFrontendRunning) {
     throw new Error(
-      `[FAIL FAST - MANDATORY SERVICE CHECK] Frontend service at ${frontendUrl} is OFFLINE: ${err.message}. Please start it before running tests.`
+      `[FAIL FAST - MANDATORY SERVICE CHECK] Frontend service on port 3000 is OFFLINE. Please start it before running tests.`
     );
   }
 
-  // 2. Assert Firestore emulator is running
-  try {
-    const res = await fetch(`http://${firestoreHost}`, { method: 'GET', signal: AbortSignal.timeout(3000) });
-    if (!res) throw new Error('No response received');
-  } catch (err) {
+  const isFirestoreRunning = await verifyLocalService('Firestore Emulator', 8080, 'http://127.0.0.1:8080');
+  if (!isFirestoreRunning) {
     throw new Error(
-      `[FAIL FAST - MANDATORY SERVICE CHECK] Firestore emulator at http://${firestoreHost} is OFFLINE: ${err.message}. Please start it before running tests.`
+      `[FAIL FAST - MANDATORY SERVICE CHECK] Firestore emulator on port 8080 is OFFLINE. Please start it before running tests.`
     );
   }
 
-  // 3. Assert Functions emulator is running
-  try {
-    const res = await fetch(functionsUrl, { method: 'GET', signal: AbortSignal.timeout(3000) });
-    if (!res) throw new Error('No response received');
-  } catch (err) {
+  const isFunctionsRunning = await verifyLocalService('Functions Emulator', 5001, 'http://127.0.0.1:5001');
+  if (!isFunctionsRunning) {
     throw new Error(
-      `[FAIL FAST - MANDATORY SERVICE CHECK] Functions emulator at ${functionsUrl} is OFFLINE: ${err.message}. Please start it before running tests.`
+      `[FAIL FAST - MANDATORY SERVICE CHECK] Functions emulator on port 5001 is OFFLINE. Please start it before running tests.`
     );
   }
 }

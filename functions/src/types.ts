@@ -20,11 +20,18 @@ export interface ToolCallExecution {
   error?: string;
 }
 
+export interface FileAttachment {
+  uri: string;
+  mimeType?: string;
+  filename?: string;
+}
+
 export interface ChatMessageRecord {
   id: string;
   sender: 'user' | 'agent' | 'system';
   content: string;
   toolCalls?: ToolCallExecution[];
+  fileAttachment?: FileAttachment;
   timestamp: string;
 }
 

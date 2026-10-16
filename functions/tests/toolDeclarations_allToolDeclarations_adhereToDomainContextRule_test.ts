@@ -7,6 +7,7 @@ import {
   addProjectRequirementTagDeclaration,
   removeProjectRequirementTagDeclaration,
   searchTalentPoolDeclaration,
+  indexTalentCvDeclaration,
 } from '../src/tools/declarations';
 import { dispatchToolCall } from '../src/tools/executors';
 
@@ -22,12 +23,17 @@ vi.mock('../src/firestore', () => {
   };
 });
 
-// Mock searchVertexAI for dispatch tests
+// Mock searchVertexAI and indexVertexDocument for dispatch tests
 vi.mock('../src/vertexSearch', () => ({
   searchVertexAI: vi.fn().mockResolvedValue({
     success: true,
     query: 'copywriter',
     results: [{ id: 'cand-1', name: 'Alice', role: 'Copywriter' }],
+  }),
+  indexVertexDocument: vi.fn().mockResolvedValue({
+    success: true,
+    documentId: 'talent_alice_123',
+    message: 'Candidate "Alice" successfully indexed into Vertex AI datastore.',
   }),
 }));
 
@@ -39,6 +45,7 @@ describe('toolDeclarations_allToolDeclarations_adhereToDomainContextRule_test', 
     'addProjectRequirementTag',
     'removeProjectRequirementTag',
     'searchTalentPool',
+    'indexTalentCv',
   ];
 
   const FORBIDDEN_GENERIC_NAMES = [
@@ -132,7 +139,24 @@ describe('toolDeclarations_allToolDeclarations_adhereToDomainContextRule_test', 
     expect(searchResult.success).toBe(true);
     expect(searchResult.data).toHaveProperty('candidates');
 
-    // 7. Verify backwards compatibility for legacy aliases
+    // 7. Test indexTalentCv
+    const indexResult = await dispatchToolCall('proj-1', 'indexTalentCv', {
+      name: 'Alice',
+      role: 'Senior Copywriter',
+      skills: 'Copywriting, Transcreation',
+    });
+    expect(indexResult.success).toBe(true);
+    expect(indexResult.data).toHaveProperty('documentId');
+
+    // 8. Test indexTalentProfile alias
+    const aliasIndexResult = await dispatchToolCall('proj-1', 'indexTalentProfile', {
+      name: 'Bob',
+      role: 'AI Post-Editor',
+      skills: 'MTPE, French',
+    });
+    expect(aliasIndexResult.success).toBe(true);
+
+    // 9. Verify backwards compatibility for legacy aliases
     const legacyStatusResult = await dispatchToolCall('proj-1', 'updateStatus', { status: 'completed' });
     expect(legacyStatusResult.success).toBe(true);
 

@@ -139,7 +139,8 @@ flowchart TD
 #### B. Cloud Functions Backend (`functions/`)
 - **Runtime**: Node.js 20, TypeScript, Firebase Functions v2, deployed strictly to `europe-west2`.
 - **Endpoints**:
-  - `POST /chat`: Initiates an SSE stream (`text/event-stream`). Emits `tool_call_start`, `tool_call_result`, `agent_text`, and `done` events.
+  - `POST /chat`: Initiates an SSE stream (`text/event-stream`). Emits `tool_call_start`, `tool_call_result`, `agent_text`, and `done` events. Supports optional `fileUri` and `fileMimeType` for multimodal document inspection.
+  - `POST /upload`: Accepts base64 encoded files (`{ filename, mimeType, content }`), uploads to `gs://scriptorium-uploads-503507/uploads/`, and returns the GCS URI.
   - `GET/POST /seed`: Idempotently creates or resets the specified project document (default: `projects/project-default`).
   - `POST /searchTalent`: Accepts a semantic candidate search query and optional metadata filters, calling the Discovery Engine API with GoogleAuth credentials.
 - **Tools Engine (`functions/src/tools/`)**:
@@ -148,14 +149,14 @@ flowchart TD
   - `updateProjectBriefDescription`: Updates the textual scope and project brief.
   - `addProjectRequirementTag`: Appends required competencies and deliverable tags using `FieldValue.arrayUnion`.
   - `removeProjectRequirementTag`: Removes tags using `FieldValue.arrayRemove`.
-  - `searchTalentPool`: Queries vetted linguists and creative candidates via Discovery Engine / Vertex AI Search.
+  - `searchTalentPool`: Queries vetted linguists and creative candidates via Discovery Engine / Vertex AI Search, supporting structured experience/vetting filters and token-efficient compact candidate cards.
+  - `indexTalentCv`: Registers and indexes candidate CV profiles directly into the Discovery Engine datastore branch for rapid search availability.
   - *Translation Adapter*: `executors.ts` maps domain-named agent tool calls to underlying generic Firestore and Vertex operations.
 
-#### C. Semantic Talent Search (Discovery Engine / Vertex AI Search)
-- **Datastore ID**: `talent-search-connector_1785766300992_gcs_store`
-- **Location**: `eu` (`eu-discoveryengine.googleapis.com`)
-- **Storage Bucket**: `gs://scriptorium-searchable` containing CV PDFs (`cvs/*.pdf`) and candidate index metadata (`metadata.jsonl`).
-- **Capabilities**: Unstructured and structured semantic search with relevance scoring, filtering by skills, roles, experience, and vetting status (`vetted = true`).
+#### C. Cloud Storage & Candidate Repository
+- **Uploads Bucket**: `gs://scriptorium-uploads-503507` (Region: `europe-west2`, Standard storage class, uniform bucket-level access) for user/agent uploaded briefs, dossiers, and resumes.
+- **Searchable Bucket**: `gs://scriptorium-searchable` (Region: `europe-west2`) containing CV PDFs (`cvs/*.pdf`) and candidate index metadata (`metadata.jsonl`).
+- **Semantic Talent Search Datastore**: `talent-search-connector_1785766300992_gcs_store` (Location: `eu` / `eu-discoveryengine.googleapis.com`).
 
 #### D. Telemetry & Observability (`functions/src/logger.ts`)
 - All Cloud Functions invoke `setupFirestoreLogging('backend')`, automatically intercepting `console.log`, `console.info`, `console.warn`, and `console.error`.
@@ -178,6 +179,7 @@ scriptorium/
 ├── package.json                   # Root orchestrator scripts (npm test, npm run logs)
 ├── scripts/
 │   ├── check_services.js          # Pre-flight health checker for local services
+│   ├── provision_uploads_bucket.js # Provisions GCS uploads bucket in europe-west2
 │   ├── run_tests.js               # Interactive and CLI Playwright test runner
 │   └── tail_logs.js               # Real-time Firestore function_logs tailing tool
 ├── tests/                         # E2E integration test suite (Playwright)
@@ -185,6 +187,7 @@ scriptorium/
 │   ├── loggingHelper.js           # Playwright fixture with mandatory log tailing
 │   ├── playwright.config.js       # Playwright config (port 3000, 120s timeout)
 │   ├── testSearchHelpers.js       # Discovery Engine test lifecycle & GCS injection
+│   ├── chat_fileUpload_returnsExtractedId_test.spec.js # Endpoint test: GCS upload + 8-digit ID extraction
 │   ├── searchTalent_validQuery_returnsVertexSearchResults_test.spec.js
 │   ├── supervisorConsole_initialLoad_rendersSplitLayoutAndControls_test.spec.js
 │   └── supervisorAgent_multiTurnTools_mutatesFirestoreAndUpdatesViewer_test.spec.js
@@ -193,10 +196,11 @@ scriptorium/
 │   ├── tsconfig.json
 │   ├── vitest.config.ts           # Vitest configuration for backend tests
 │   ├── src/
-│   │   ├── index.ts               # HTTP endpoints (/chat, /seed, /searchTalent)
+│   │   ├── index.ts               # HTTP endpoints (/chat, /seed, /searchTalent, /upload)
 │   │   ├── config.ts              # Fail-fast server configuration validator
-│   │   ├── types.ts               # Data models (ProjectDocument, ToolCallExecution)
+│   │   ├── types.ts               # Data models (ProjectDocument, ToolCallExecution, FileAttachment)
 │   │   ├── firestore.ts           # Admin SDK client & seeding logic
+│   │   ├── storage.ts             # Cloud Storage uploads & buffer management
 │   │   ├── logger.ts              # Centralized Firestore logging & sanitization
 │   │   ├── agent.ts               # Gemini agent loop & SSE streaming dispatcher
 │   │   ├── vertexSearch.ts        # Vertex AI Search / Discovery Engine client
@@ -204,13 +208,17 @@ scriptorium/
 │   │       ├── declarations.ts    # Native Gemini FunctionDeclaration schemas
 │   │       └── executors.ts       # Concrete Firestore mutation handlers
 │   └── tests/                     # Backend unit tests
+│       ├── parseGcsUri_invalidUri_throwsExplicitError_test.ts
 │       ├── logToFirestore_validParameters_writesToFunctionLogs_test.ts
 │       ├── searchVertexAI_validQuery_returnsMatchingTalents_test.ts
 │       ├── executeUpdateStatus_validStatus_updatesProjectDocument_test.ts
 │       ├── executeUpdateStatus_invalidStatus_returnsExplicitError_test.ts
 │       ├── executeAddTag_newTag_appendsTagArray_test.ts
 │       ├── executeRenameProject_emptyTitle_returnsExplicitError_test.ts
+│       ├── executeSearchTalentPool_validParameters_returnsCompactCandidates_test.ts
+│       ├── executeIndexTalentCv_validParameters_indexesCandidateDocument_test.ts
 │       └── toolDeclarations_allToolDeclarations_adhereToDomainContextRule_test.ts
+
 └── frontend/                      # Supervisor SPA (React 18 + Vite + Tailwind)
     ├── package.json
     ├── vite.config.ts
@@ -249,9 +257,13 @@ scriptorium/
 ### 3. Service Pre-Flight Assertions (Mandatory)
 - Every Playwright test spec MUST invoke `await assertServicesRunning(testConfig)` as its very first action.
 - The pre-flight check validates:
-  1. Frontend SPA (`http://localhost:3000`)
-  2. Cloud Functions Emulator (`http://127.0.0.1:5001`)
-  3. Firestore Emulator (`http://127.0.0.1:8080`)
+  1. Frontend SPA (Port 3000)
+  2. Cloud Functions Emulator (Port 5001)
+  3. Firestore Emulator (Port 8080)
+- **Multi-Method Health Probe**: To avoid false negatives across Node 20+, dual-stack IPv4/IPv6, and sandbox boundary environments, verification uses a 3-tier probe:
+  1. *Direct TCP Socket Probe* (`net.connect` on `127.0.0.1` and `::1`).
+  2. *HTTP Handshake Probe* (`http.request`).
+  3. *Kernel State Probe* (verifying `0A` `TCP_LISTEN` state in `/proc/net/tcp` and `/proc/net/tcp6`).
 - If any service is unreachable, tests fail fast immediately with a clear error identifying the offline service.
 
 ### 4. Gemini 3.x / Thinking Models - Thought Signatures Rule (CRITICAL)
@@ -320,6 +332,8 @@ npx vitest run tests/executeUpdateStatus_validStatus_updatesProjectDocument_test
 npx vitest run tests/executeUpdateStatus_invalidStatus_returnsExplicitError_test.ts
 npx vitest run tests/executeAddTag_newTag_appendsTagArray_test.ts
 npx vitest run tests/executeRenameProject_emptyTitle_returnsExplicitError_test.ts
+npx vitest run tests/executeSearchTalentPool_validParameters_returnsCompactCandidates_test.ts
+npx vitest run tests/executeIndexTalentCv_validParameters_indexesCandidateDocument_test.ts
 
 # Frontend unit tests (from /frontend):
 cd frontend

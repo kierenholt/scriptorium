@@ -17,6 +17,8 @@ const readline = require('readline');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
+const http = require('http');
 
 const ROOT_DIR = path.resolve(__dirname, '../');
 const TESTS_DIR = path.resolve(ROOT_DIR, 'tests');
@@ -88,6 +90,78 @@ function groupByCategory(testFiles) {
   return groups;
 }
 
+function isPortListeningInProc(port) {
+  try {
+    for (const file of ['/proc/net/tcp', '/proc/net/tcp6']) {
+      if (!fs.existsSync(file)) continue;
+      const content = fs.readFileSync(file, 'utf8');
+      const lines = content.trim().split('\n').slice(1);
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts[3] === '0A') {
+          const portHex = parts[1].split(':')[1];
+          if (parseInt(portHex, 16) === port) return true;
+        }
+      }
+    }
+  } catch {}
+  return false;
+}
+
+function probeTcp(port, host = '127.0.0.1', timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once('error', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.connect(port, host);
+  });
+}
+
+function probeHttp(url, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    try {
+      const u = new URL(url);
+      const req = http.request(
+        {
+          hostname: u.hostname,
+          port: u.port,
+          path: u.pathname || '/',
+          method: 'GET',
+          timeout: timeoutMs,
+        },
+        () => resolve(true)
+      );
+      req.once('timeout', () => {
+        req.destroy();
+        resolve(false);
+      });
+      req.once('error', () => resolve(false));
+      req.end();
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+async function verifyLocalService(name, port, defaultUrl) {
+  if (await probeTcp(port, '127.0.0.1')) return { name, online: true, method: 'TCP (IPv4)', url: defaultUrl };
+  if (await probeTcp(port, '::1')) return { name, online: true, method: 'TCP (IPv6)', url: defaultUrl };
+  if (await probeHttp(defaultUrl)) return { name, online: true, method: 'HTTP GET', url: defaultUrl };
+  if (isPortListeningInProc(port)) return { name, online: true, method: 'Kernel (/proc/net/tcp)', url: defaultUrl };
+  return { name, online: false, method: null, url: defaultUrl };
+}
+
 /**
  * Pre-flight health check verifying connectivity across Scriptorium components.
  */
@@ -97,6 +171,34 @@ async function runSystemHealthCheck(envProfile = 'local') {
   console.log(`\n🏥 [HEALTH CHECK] Performing pre-flight health check (${envProfile.toUpperCase()})...`);
   console.log('─'.repeat(70));
 
+  if (!isProd) {
+    const services = [
+      { name: 'Supervisor Web App (Vite)', port: 3000, url: process.env.LOCAL_BASE_URL || 'http://localhost:3000' },
+      { name: 'Functions Emulator', port: 5001, url: process.env.VITE_API_BASE_URL || 'http://127.0.0.1:5001' },
+      { name: 'Firestore Emulator', port: 8080, url: `http://${process.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080'}` },
+    ];
+
+    let allHealthy = true;
+    for (const svc of services) {
+      const res = await verifyLocalService(svc.name, svc.port, svc.url);
+      if (res.online) {
+        console.log(`  ✅ ${res.name.padEnd(28)} -> ONLINE  via ${res.method} [${res.url}]`);
+      } else {
+        console.log(`  ❌ ${res.name.padEnd(28)} -> OFFLINE [${res.url}]`);
+        allHealthy = false;
+      }
+    }
+
+    console.log('─'.repeat(70));
+    if (!allHealthy) {
+      console.log('⚠️  [HEALTH CHECK WARNING] One or more Scriptorium services are unreachable!\n');
+    } else {
+      console.log('✨ [HEALTH CHECK OK] All required Scriptorium services are online!\n');
+    }
+    return allHealthy;
+  }
+
+  // Production check
   let prodBaseUrl = 'https://scriptorium-503507.web.app';
   let prodRegion = 'europe-west2';
   let prodProjectId = 'scriptorium-503507';
@@ -116,23 +218,15 @@ async function runSystemHealthCheck(envProfile = 'local') {
   }
 
   const prodFunctionsUrl = `https://${prodRegion}-${prodProjectId}.cloudfunctions.net`;
+  const prodServices = [
+    { name: 'Supervisor Web App', url: prodBaseUrl, method: 'GET' },
+    { name: 'Cloud Functions Base', url: prodFunctionsUrl, method: 'GET' },
+  ];
 
-  const services = isProd
-    ? [
-        { name: 'Supervisor Web App', url: prodBaseUrl, method: 'GET' },
-        { name: 'Cloud Functions Base', url: prodFunctionsUrl, method: 'GET' },
-      ]
-    : [
-        { name: 'Supervisor Web App (Vite)', url: process.env.LOCAL_BASE_URL || 'http://localhost:3000', method: 'GET' },
-        { name: 'Functions Emulator', url: process.env.VITE_API_BASE_URL || 'http://127.0.0.1:5001', method: 'GET' },
-        { name: 'Firestore Emulator', url: `http://${process.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080'}`, method: 'GET' },
-      ];
-
-  const results = await Promise.all(services.map(async (svc) => {
+  const results = await Promise.all(prodServices.map(async (svc) => {
     try {
       const controller = new AbortController();
-      const timeoutMs = isProd ? 10000 : 3000;
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
       const res = await fetch(svc.url, { method: svc.method, signal: controller.signal });
       clearTimeout(timeoutId);
       return { ...svc, online: true, status: res.status, error: null };

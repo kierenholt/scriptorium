@@ -90,18 +90,62 @@ export const searchTalentPoolDeclaration: FunctionDeclaration = {
     properties: {
       query: {
         type: Type.STRING,
-        description: 'The natural language search query describing desired skills, languages, or experience.',
+        description: 'The natural language search query describing desired skills, languages, or creative disciplines.',
+      },
+      minYearsExperience: {
+        type: Type.INTEGER,
+        description: 'Optional minimum verified years of professional experience required for the brief.',
+      },
+      vettedOnly: {
+        type: Type.BOOLEAN,
+        description: 'Whether to restrict the search to pre-tested and verified Scriptorium talent.',
       },
       filter: {
         type: Type.STRING,
-        description: 'Optional structured metadata filter expression (e.g. vetting status or discipline).',
+        description: 'Optional structured metadata filter expression (e.g. location or specific discipline).',
       },
       pageSize: {
         type: Type.INTEGER,
-        description: 'Maximum number of candidate profiles to return.',
+        description: 'Maximum number of candidate profile cards to return (default: 5).',
       },
     },
     required: ['query'],
+  },
+};
+
+export const indexTalentCvDeclaration: FunctionDeclaration = {
+  name: 'indexTalentCv',
+  description:
+    'Index and register a candidate CV or talent profile into the Scriptorium searchable candidate repository using Vertex AI Search. Use when the supervisor asks to register, upload, index, or add a new candidate or freelancer (e.g., "index this candidate CV", "add Alice to our vetted copywriter pool", "save this profile to the talent repository"). Do NOT use this tool for modifying project requirements, changing project lifecycle status, or searching existing talent.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      name: {
+        type: Type.STRING,
+        description: 'Full name of the candidate or freelance specialist to register into Scriptorium.',
+      },
+      role: {
+        type: Type.STRING,
+        description: 'Primary creative or linguistic role (e.g., "Transcreation Specialist", "Copywriter", "AI Post-Editor").',
+      },
+      skills: {
+        type: Type.STRING,
+        description: 'Key skills, competencies, and language pairs possessed by the candidate.',
+      },
+      location: {
+        type: Type.STRING,
+        description: 'Candidate primary operating location or target market (e.g., "London, UK", "Berlin, Germany").',
+      },
+      yearsExperience: {
+        type: Type.INTEGER,
+        description: 'Number of verified years of professional industry experience.',
+      },
+      summary: {
+        type: Type.STRING,
+        description: 'Concise professional summary, background, or craft evaluation notes for the talent.',
+      },
+    },
+    required: ['name', 'role', 'skills'],
   },
 };
 
@@ -111,6 +155,8 @@ export const renameProjectDeclaration = renameProjectDocumentDeclaration;
 export const updateDescriptionDeclaration = updateProjectBriefDescriptionDeclaration;
 export const addTagDeclaration = addProjectRequirementTagDeclaration;
 export const removeTagDeclaration = removeProjectRequirementTagDeclaration;
+export const searchTalentDeclaration = searchTalentPoolDeclaration;
+export const indexTalentProfileDeclaration = indexTalentCvDeclaration;
 
 export const allToolDeclarations: FunctionDeclaration[] = [
   updateProjectLifecycleStageDeclaration,
@@ -119,4 +165,6 @@ export const allToolDeclarations: FunctionDeclaration[] = [
   addProjectRequirementTagDeclaration,
   removeProjectRequirementTagDeclaration,
   searchTalentPoolDeclaration,
+  indexTalentCvDeclaration,
 ];
+

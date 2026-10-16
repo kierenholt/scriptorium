@@ -3,6 +3,7 @@ import cors from 'cors';
 import { runAgentConversation } from './agent';
 import { seedDefaultProject } from './firestore';
 import { searchVertexAI } from './vertexSearch';
+import { uploadBufferToGcs } from './storage';
 import { setupFirestoreLogging, logToFirestore } from './logger';
 
 export { setupFirestoreLogging, logToFirestore } from './logger';
@@ -43,7 +44,7 @@ export const chat = onRequest(
         return;
       }
 
-      const { projectId, message } = req.body || {};
+      const { projectId, message, fileUri, fileMimeType } = req.body || {};
 
       // Fail-fast validation
       if (!projectId || typeof projectId !== 'string' || projectId.trim() === '') {
@@ -62,13 +63,22 @@ export const chat = onRequest(
         return;
       }
 
+      const fileAttachment = fileUri && typeof fileUri === 'string' && fileUri.trim() !== ''
+        ? { uri: fileUri.trim(), mimeType: typeof fileMimeType === 'string' ? fileMimeType.trim() : undefined }
+        : undefined;
+
       // Configure SSE Headers
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
       res.flushHeaders?.();
 
-      await logToFirestore('info', `[chat] Incoming request for project "${projectId}"`, { projectId, message }, 'chat');
+      await logToFirestore(
+        'info',
+        `[chat] Incoming request for project "${projectId}"`,
+        { projectId, message, fileAttachment },
+        'chat'
+      );
 
       const sendEvent = (event: string, data: Record<string, unknown>) => {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -77,20 +87,25 @@ export const chat = onRequest(
       try {
         sendEvent('connection_open', { status: 'connected', projectId });
 
-        await runAgentConversation(projectId.trim(), message.trim(), {
-          onToolCallStart: (toolCall) => {
-            sendEvent('tool_call_start', toolCall);
+        await runAgentConversation(
+          projectId.trim(),
+          message.trim(),
+          {
+            onToolCallStart: (toolCall) => {
+              sendEvent('tool_call_start', toolCall);
+            },
+            onToolCallResult: (result) => {
+              sendEvent('tool_call_result', result);
+            },
+            onTextChunk: (text) => {
+              sendEvent('agent_text', { token: text });
+            },
+            onError: (err) => {
+              sendEvent('error', { message: err.message });
+            },
           },
-          onToolCallResult: (result) => {
-            sendEvent('tool_call_result', result);
-          },
-          onTextChunk: (text) => {
-            sendEvent('agent_text', { token: text });
-          },
-          onError: (err) => {
-            sendEvent('error', { message: err.message });
-          },
-        });
+          fileAttachment
+        );
 
         await logToFirestore('info', `[chat] Agent conversation completed for project "${projectId}"`, { projectId }, 'chat');
         sendEvent('done', { status: 'complete' });
@@ -211,3 +226,104 @@ export const searchTalent = onRequest(
     });
   }
 );
+
+/**
+ * Document / File Upload Endpoint.
+ * Accepts a base64 encoded file payload and stores it in Cloud Storage under uploads/.
+ */
+export const upload = onRequest(
+  {
+    region: 'europe-west2',
+    timeoutSeconds: 60,
+    cors: true,
+  },
+  async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    corsHandler(req, res, async () => {
+      if (req.method === 'OPTIONS') {
+        res.status(204).send('');
+        return;
+      }
+
+      if (req.method !== 'POST') {
+        res.status(405).json({
+          error: 'METHOD_NOT_ALLOWED',
+          message: 'Only POST requests are supported on /upload.',
+        });
+        return;
+      }
+
+      const { filename, mimeType, content } = req.body || {};
+
+      // Fail-fast validation
+      if (!filename || typeof filename !== 'string' || filename.trim() === '') {
+        res.status(400).json({
+          error: 'MISSING_FILENAME',
+          message: '[FAIL FAST] Mandatory field "filename" is missing from request body.',
+        });
+        return;
+      }
+
+      if (!mimeType || typeof mimeType !== 'string' || mimeType.trim() === '') {
+        res.status(400).json({
+          error: 'MISSING_MIME_TYPE',
+          message: '[FAIL FAST] Mandatory field "mimeType" is missing from request body.',
+        });
+        return;
+      }
+
+      if (!content || typeof content !== 'string' || content.trim() === '') {
+        res.status(400).json({
+          error: 'MISSING_CONTENT',
+          message: '[FAIL FAST] Mandatory field "content" (base64) is missing from request body.',
+        });
+        return;
+      }
+
+      try {
+        const buffer = Buffer.from(content, 'base64');
+        if (buffer.length === 0) {
+          res.status(400).json({
+            error: 'EMPTY_CONTENT',
+            message: '[FAIL FAST] Decoded file content buffer is empty.',
+          });
+          return;
+        }
+
+        await logToFirestore(
+          'info',
+          `[upload] Uploading file "${filename.trim()}" (${mimeType.trim()}, ${buffer.length} bytes)`,
+          { filename: filename.trim(), mimeType: mimeType.trim(), size: buffer.length },
+          'upload'
+        );
+
+        const { uri, size } = await uploadBufferToGcs(filename.trim(), mimeType.trim(), buffer);
+
+        await logToFirestore(
+          'info',
+          `[upload] Successfully uploaded to "${uri}"`,
+          { uri, size },
+          'upload'
+        );
+
+        res.status(200).json({
+          success: true,
+          uri,
+          filename: filename.trim(),
+          mimeType: mimeType.trim(),
+          size,
+        });
+      } catch (err: any) {
+        await logToFirestore('error', `[upload] Upload failed: ${err?.message}`, { error: err?.message }, 'upload');
+        res.status(500).json({
+          error: 'UPLOAD_FAILED',
+          message: err?.message || 'Failed to upload file to Cloud Storage.',
+        });
+      }
+    });
+  }
+);
+

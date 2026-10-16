@@ -3,8 +3,9 @@ import { serverConfig } from './config';
 import { allToolDeclarations } from './tools/declarations';
 import { dispatchToolCall, ToolExecutionResult } from './tools/executors';
 import { getProject, getRecentMessages, persistMessage } from './firestore';
-import { ToolCallExecution } from './types';
+import { ToolCallExecution, FileAttachment } from './types';
 import { logToFirestore } from './logger';
+import { downloadBufferFromGcs } from './storage';
 
 
 export interface StreamCallbacks {
@@ -15,16 +16,30 @@ export interface StreamCallbacks {
 }
 
 const SYSTEM_INSTRUCTION = `You are Scriptorium's Project Supervisor Agent.
-Your responsibility is to assist the supervisor in viewing, managing, and mutating the current Firestore project document, as well as searching and discovering candidate talent.
-When the user asks you to perform an action on the project or talent pool (e.g. change lifecycle stage, rename project, edit brief description, add or remove requirement tags, or search the talent pool):
-1. Immediately invoke the corresponding domain-specific tool with precise parameters.
-2. When the tool execution result is returned to you, explain clearly what was done and conclude with a concise message like "I'm done" or confirm the new project state.
-3. If an action is invalid or fails, explain the exact error directly.`;
+Scriptorium provides a managed talent-as-a-service platform for creative, localisation, and marketing teams, curating vetted talent pools across copywriters, transcreation specialists, AI post-editors, translators, and project managers.
+Your responsibility is to assist the supervisor in viewing, managing, and mutating the current Firestore project document, and managing candidate talent.
+
+Operational Guidelines:
+1. When the supervisor asks to find, source, or shortlist candidates, freelancers, or specialists:
+   - Immediately invoke "searchTalentPool" with descriptive query terms and optional structured filters (minYearsExperience, vettedOnly).
+   - Present candidate results clearly with their key competencies, experience, and relevance.
+2. When the supervisor asks to register, upload, index, or add a candidate/freelancer profile or CV:
+   - Immediately invoke "indexTalentCv" with the candidate's name, role, skills, and optional location, yearsExperience, summary.
+3. When the user asks to modify the project specification:
+   - Invoke "updateProjectLifecycleStage", "renameProjectDocument", "updateProjectBriefDescription", "addProjectRequirementTag", or "removeProjectRequirementTag".
+4. When tool execution results are returned:
+   - Explain clearly what was done and conclude with a concise message confirming the new state.
+5. If an action is invalid or fails:
+   - Explain the exact error directly.
+6. When inspecting attached files or documents:
+   - Carefully read the attached file content.
+   - If asked to extract specific data (e.g. an ID, code, or specific field), follow the user's formatting instructions precisely.`;
 
 export async function runAgentConversation(
   projectId: string,
   userPrompt: string,
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  fileAttachment?: FileAttachment
 ): Promise<{ finalResponse: string; toolExecutions: ToolCallExecution[] }> {
   // Fail fast check
   if (!projectId || projectId.trim() === '') {
@@ -56,8 +71,29 @@ export async function runAgentConversation(
     }
   }
 
+  // Build user turn parts including optional file attachment
+  const userParts: any[] = [];
+
+  if (fileAttachment?.uri) {
+    if (fileAttachment.uri.startsWith('gs://')) {
+      await logToFirestore('info', `[agent] Downloading attached file from "${fileAttachment.uri}"`, { fileAttachment }, 'agent');
+      const { buffer, mimeType: fetchedMime } = await downloadBufferFromGcs(fileAttachment.uri);
+      const mimeType = fileAttachment.mimeType || fetchedMime;
+      userParts.push({
+        inlineData: {
+          mimeType,
+          data: buffer.toString('base64'),
+        },
+      });
+    } else {
+      throw new Error(`[FAIL FAST] Unsupported file attachment URI scheme: "${fileAttachment.uri}". Must be a "gs://" URI.`);
+    }
+  }
+
+  userParts.push({ text: userPrompt });
+
   // Append latest user prompt
-  contents.push({ role: 'user', parts: [{ text: userPrompt }] });
+  contents.push({ role: 'user', parts: userParts });
 
   // Persist user prompt immediately
   const userMsgId = `msg-user-${Date.now()}`;
@@ -65,6 +101,7 @@ export async function runAgentConversation(
     id: userMsgId,
     sender: 'user',
     content: userPrompt,
+    fileAttachment,
     timestamp: new Date().toISOString(),
   });
 

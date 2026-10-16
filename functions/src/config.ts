@@ -18,4 +18,6 @@ export const serverConfig = {
   vertexSearchProjectNumber: requireEnv('VERTEX_SEARCH_PROJECT_NUMBER'),
   vertexSearchDatastoreId: requireEnv('VERTEX_SEARCH_DATASTORE_ID'),
   vertexSearchLocation: process.env.VERTEX_SEARCH_LOCATION || 'eu',
+  storageBucket: requireEnv('AI_SEARCHABLE_BUCKET'),
+  uploadsBucket: requireEnv('AI_UPLOADS_BUCKET'),
 };
