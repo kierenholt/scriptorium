@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Frontend: Dev Server",
+      "name": "Frontend",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}/frontend",
@@ -12,7 +12,7 @@
       "internalConsoleOptions": "neverOpen"
     },
     {
-      "name": "Backend: Firebase Emulators",
+      "name": "Firebase Emulators",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}",
@@ -22,7 +22,7 @@
       "internalConsoleOptions": "neverOpen"
     },
     {
-      "name": "Backend: Functions Watch (TypeScript)",
+      "name": "Functions",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}/functions",
@@ -36,8 +36,9 @@
     {
       "name": "Full Stack: Emulators + Frontend",
       "configurations": [
-        "Backend: Firebase Emulators",
-        "Frontend: Dev Server"
+        "Firebase Emulators",
+        "Frontend",
+        "Functions"
       ],
       "stopAll": true
     }

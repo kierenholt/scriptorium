@@ -8,6 +8,7 @@
     "test:e2e": "node scripts/run_tests.js",
     "test:install": "playwright install chromium",
     "test:unit": "npm --prefix functions test",
+    "check:services": "node scripts/check_services.js",
     "logs": "node scripts/tail_logs.js",
     "logs:tail": "node scripts/tail_logs.js",
     "logs:local": "node scripts/tail_logs.js local",

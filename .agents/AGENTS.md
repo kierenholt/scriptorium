@@ -13,8 +13,9 @@
 - **Backend Unit Tests**: All Cloud Functions unit tests MUST strictly reside in `functions/tests/` (Vitest).
 - **Frontend Unit Tests**: All React / DOM unit tests MUST strictly reside in `frontend/src/tests/` (Vitest).
 - **Test Invocations**:
-  - To run Playwright E2E tests: use `npm test` or `node scripts/run_tests.js [test-name] [local|production] [mode]`.
+  - To run Playwright E2E tests: use `npm test` for interactive selection, or pass the test name directly as a parameter: `npm run test:e2e -- [test-name]` or `node scripts/run_tests.js [test-name] [local|production] [mode]` (e.g. `npm run test:e2e -- searchTalent` or `node scripts/run_tests.js searchTalent`).
   - To run backend unit tests: use `npm run test:unit`.
+  - To verify local service health: use `npm run check:services`.
   - To tail Firestore logs: use `npm run logs:local` (local emulator) or `npm run logs` (production).
   - Do not ask the user where test specs go or how to execute them; follow this structure unconditionally.
 

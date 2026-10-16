@@ -22,11 +22,14 @@
   - `cloudHelpers.js`: Firestore and Cloud Functions test harness helpers.
   - `loggingHelper.js`: Playwright fixture with real-time console error interception and Firestore telemetry.
   - `playwright.config.js`: Playwright configuration for local (port 3000) and production profiles.
+  - `testSearchHelpers.js`: Vertex AI Search test lifecycle helpers (GCS test document upload, Discovery Engine reindex polling, and cleanup).
+  - `searchTalent_validQuery_returnsVertexSearchResults_test.spec.js`: E2E test verifying test document generation with random ID, Discovery Engine reindexing, Cloud Function querying, and API result assertions.
   - `supervisorConsole_initialLoad_rendersSplitLayoutAndControls_test.spec.js`: E2E test verifying supervisor layout.
   - `supervisorAgent_multiTurnTools_mutatesFirestoreAndUpdatesViewer_test.spec.js`: Multi-turn E2E test verifying seeding, tool badge streaming, and reactive document mutations.
 - `functions/`: Cloud Functions backend.
-  - `src/index.ts`: HTTP endpoints (`/chat` with SSE, `/seed`).
-  - `src/config.ts`: Fail-fast environment variable validation (`GEMINI_API_KEY`, `GCP_PROJECT_ID`).
+  - `src/index.ts`: HTTP endpoints (`/chat` with SSE, `/seed`, `/searchTalent`).
+  - `src/config.ts`: Fail-fast environment variable validation (`GEMINI_API_KEY`, `GCP_PROJECT_ID`, `VERTEX_SEARCH_PROJECT_NUMBER`, `VERTEX_SEARCH_DATASTORE_ID`).
+  - `src/vertexSearch.ts`: Discovery Engine (Vertex AI Search) client querying `eu-discoveryengine.googleapis.com` with GoogleAuth.
   - `src/types.ts`: Backend models (`ProjectDocument`, `ToolCallExecution`, `ChatMessageRecord`).
   - `src/firestore.ts`: Firebase Admin SDK initialization, document fetchers, and seeding helpers.
   - `src/agent.ts`: Gemini agent orchestration loop, multi-turn tool handling, and streaming dispatcher.
@@ -34,6 +37,7 @@
   - `src/tools/executors.ts`: Concrete Firestore mutation handlers with strict parameter validation.
   - `vitest.config.ts`: Test runner configuration.
   - `tests/`: Local unit tests adhering to `methodname_initialstate_expectedbehaviour_test()` convention.
+    - `searchVertexAI_validQuery_returnsMatchingTalents_test.ts`: Unit test for Vertex AI search client.
 - `frontend/`: Supervisor single-page application.
   - `src/App.tsx`: 70/30 split view layout with live Firestore listener synchronization.
   - `src/config.ts`: Fail-fast frontend environment validator.
@@ -61,6 +65,15 @@
 ```bash
 # Run interactive Playwright E2E test runner
 npm test
+
+# Run a specific Playwright E2E test by name or keyword
+npm run test:e2e -- searchTalent
+npm run test:e2e -- supervisorAgent
+# or invoke runner directly:
+node scripts/run_tests.js searchTalent local 1
+
+# Check local services health (frontend, functions emulator, firestore)
+npm run check:services
 
 # Run backend unit tests sequentially
 npm run test:unit

@@ -2,6 +2,7 @@ import { onRequest } from 'firebase-functions/v2/https';
 import cors from 'cors';
 import { runAgentConversation } from './agent';
 import { seedDefaultProject } from './firestore';
+import { searchVertexAI } from './vertexSearch';
 
 const corsHandler = cors({ origin: true });
 
@@ -129,6 +130,64 @@ export const seed = onRequest(
         res.status(500).json({
           error: 'SEED_FAILED',
           message: err?.message || 'Failed to seed default project.',
+        });
+      }
+    });
+  }
+);
+
+/**
+ * Vertex AI Search Endpoint.
+ * Executes semantic candidate / talent searches against Discovery Engine.
+ */
+export const searchTalent = onRequest(
+  {
+    region: 'europe-west2',
+    timeoutSeconds: 60,
+    cors: true,
+  },
+  async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    corsHandler(req, res, async () => {
+      if (req.method === 'OPTIONS') {
+        res.status(204).send('');
+        return;
+      }
+
+      if (req.method !== 'POST') {
+        res.status(405).json({
+          error: 'METHOD_NOT_ALLOWED',
+          message: 'Only POST requests are supported on /searchTalent.',
+        });
+        return;
+      }
+
+      const { query, filter, pageSize } = req.body || {};
+
+      // Fail-fast validation
+      if (!query || typeof query !== 'string' || query.trim() === '') {
+        res.status(400).json({
+          error: 'MISSING_QUERY',
+          message: '[FAIL FAST] Mandatory field "query" is missing from request body.',
+        });
+        return;
+      }
+
+      try {
+        const searchResult = await searchVertexAI({
+          query: query.trim(),
+          filter: filter && typeof filter === 'string' ? filter.trim() : undefined,
+          pageSize: typeof pageSize === 'number' ? pageSize : undefined,
+        });
+
+        res.status(200).json(searchResult);
+      } catch (err: any) {
+        res.status(500).json({
+          error: 'VERTEX_SEARCH_FAILED',
+          message: err?.message || 'Error executing Vertex AI Search.',
         });
       }
     });
