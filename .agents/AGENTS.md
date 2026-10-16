@@ -47,4 +47,18 @@
 - **Backend Logging**: All Cloud Functions log operational events and tool invocations to the Firestore `function_logs` collection via `setupFirestoreLogging()` console interception and `logToFirestore()` in `functions/src/logger.ts`. Each log record contains `timestamp` (server timestamp), `service`, `level`, `message`, `details` (sanitized/masked), and a 24-hour TTL (`expireAt`).
 - **Mandatory Test Tail Output**: ALL Playwright tests MUST unconditionally output the formatted tail of `function_logs` recorded during that test run (`where('timestamp', '>=', startTime)`). This is enforced in `tests/loggingHelper.js` fixture teardown for both passing and failing runs, and attached to test artifacts.
 
+## 9. Tool Naming & Domain Abstraction Rule (CRITICAL)
+- **Decoupled Backend Endpoints vs. Contextual Agent Tools**:
+  - The underlying backend endpoints, database methods, and cloud services (e.g. Firestore updates, Vertex AI Search imports, GCS uploads) must remain generic infrastructure primitives and do NOT need to know the conversational context.
+  - The tool **AS IT APPEARS TO THE AGENT** (`functions/src/tools/declarations.ts`) MUST have a contextual, domain-specific name derived from Scriptorium product strategy in `GEMINI.md` (e.g. `indexTalentCv`, `searchTalentPool`, `updateProjectLifecycleStage`, `addProjectRequirementTag`). This ensures the agent immediately recognizes which tool to invoke when the user says "add this CV to the talent pool" or "update project status".
+- **The Dispatcher Translation Layer (`functions/src/tools/executors.ts`)**:
+  - The mapping between domain-specific agent tool names and generic infrastructure operations lives strictly in the backend dispatcher (`dispatchToolCall`).
+  - When multiple distinct user intents map to the same underlying mutation (e.g. adding a discipline tag vs. a required language), split them into fine-grained, intent-specific agent tools with tailored descriptions.
+- **Mandatory Tool Description Schema**:
+  - Every tool declaration in `functions/src/tools/declarations.ts` MUST structure its `description` with three distinct contextual elements:
+    1. **Business Intent**: Why and when the action is taken within Scriptorium's domain.
+    2. **User Trigger Phrases**: Explicit phrasing examples (e.g. `Use when the supervisor asks to "add this CV to the pool", "index candidate", or "save resume"`).
+    3. **Negative Guardrails**: Explicit exclusions to prevent tool misrouting (e.g. `Do NOT use this tool for project status updates or tagging`).
+  - All parameter descriptions must also be framed in domain terms rather than generic schema terms.
+
 

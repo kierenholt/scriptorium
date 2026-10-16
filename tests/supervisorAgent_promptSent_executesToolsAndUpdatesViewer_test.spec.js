@@ -41,7 +41,7 @@ test.describe('Supervisor Agent Full E2E Flow', () => {
     // 6. Verify tool execution badge appears in the chat stream
     const toolBadge = page.locator('[data-testid="tool-call-badge"]').first();
     await expect(toolBadge).toBeVisible({ timeout: 30000 });
-    await expect(toolBadge).toContainText('updateStatus');
+    await expect(toolBadge).toContainText(/updateProjectLifecycleStage|updateStatus/);
 
     // 7. Verify reactive real-time update in the Raw JSON Viewer (without page reload)
     await expect(rawViewer).toContainText('"status": "completed"', { timeout: 20000 });

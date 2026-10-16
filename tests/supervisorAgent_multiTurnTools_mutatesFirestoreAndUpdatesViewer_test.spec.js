@@ -44,10 +44,10 @@ test.describe('Supervisor Agent Multi-Turn E2E Integration Flow', () => {
     await sendBtn.click();
 
     // Verify tool execution badges appear in the right 30% chat panel
-    const renameToolBadge = page.locator('[data-testid="tool-call-badge"]:has-text("renameProject")');
+    const renameToolBadge = page.locator('[data-testid="tool-call-badge"]').filter({ hasText: /(renameProjectDocument|renameProject)/ }).first();
     await expect(renameToolBadge).toBeVisible({ timeout: 30000 });
 
-    const statusToolBadge = page.locator('[data-testid="tool-call-badge"]:has-text("updateStatus")');
+    const statusToolBadge = page.locator('[data-testid="tool-call-badge"]').filter({ hasText: /(updateProjectLifecycleStage|updateStatus)/ }).first();
     await expect(statusToolBadge).toBeVisible({ timeout: 30000 });
 
     // Verify left 70% Raw JSON Viewer reactively updates without page reload
@@ -67,7 +67,7 @@ test.describe('Supervisor Agent Multi-Turn E2E Integration Flow', () => {
     await sendBtn.click();
 
     // Verify Turn 2 tool execution badge appears
-    const statusCompletedBadge = page.locator('[data-testid="tool-call-badge"]:has-text("updateStatus")').last();
+    const statusCompletedBadge = page.locator('[data-testid="tool-call-badge"]').filter({ hasText: /(updateProjectLifecycleStage|updateStatus)/ }).last();
     await expect(statusCompletedBadge).toBeVisible({ timeout: 30000 });
 
     // Verify left 70% Raw JSON Viewer reactively reflects completed status

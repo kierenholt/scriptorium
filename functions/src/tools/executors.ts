@@ -1,6 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../firestore';
 import { ProjectStatus } from '../types';
+import { searchVertexAI } from '../vertexSearch';
 
 const VALID_STATUSES: ProjectStatus[] = ['draft', 'in_progress', 'blocked', 'completed'];
 
@@ -12,7 +13,7 @@ export interface ToolExecutionResult {
 }
 
 /**
- * Execute updateStatus tool.
+ * Execute updateProjectLifecycleStage tool (formerly updateStatus).
  */
 export async function executeUpdateStatus(
   projectId: string,
@@ -49,7 +50,7 @@ export async function executeUpdateStatus(
 }
 
 /**
- * Execute renameProject tool.
+ * Execute renameProjectDocument tool (formerly renameProject).
  */
 export async function executeRenameProject(
   projectId: string,
@@ -78,7 +79,7 @@ export async function executeRenameProject(
 }
 
 /**
- * Execute updateDescription tool.
+ * Execute updateProjectBriefDescription tool (formerly updateDescription).
  */
 export async function executeUpdateDescription(
   projectId: string,
@@ -107,7 +108,7 @@ export async function executeUpdateDescription(
 }
 
 /**
- * Execute addTag tool.
+ * Execute addProjectRequirementTag tool (formerly addTag).
  */
 export async function executeAddTag(
   projectId: string,
@@ -136,7 +137,7 @@ export async function executeAddTag(
 }
 
 /**
- * Execute removeTag tool.
+ * Execute removeProjectRequirementTag tool (formerly removeTag).
  */
 export async function executeRemoveTag(
   projectId: string,
@@ -165,7 +166,54 @@ export async function executeRemoveTag(
 }
 
 /**
- * Tool dispatcher mapping function names to executors.
+ * Execute searchTalentPool tool against Vertex AI Search datastore.
+ */
+export async function executeSearchTalentPool(
+  _projectId: string,
+  args: { query?: string; filter?: string; pageSize?: number }
+): Promise<ToolExecutionResult> {
+  if (!args.query || typeof args.query !== 'string' || args.query.trim() === '') {
+    return {
+      success: false,
+      error: 'Missing required parameter "query".',
+      message: 'Failed to search talent pool: "query" parameter is required.',
+    };
+  }
+
+  try {
+    const searchResponse = await searchVertexAI({
+      query: args.query.trim(),
+      filter: args.filter && typeof args.filter === 'string' ? args.filter.trim() : undefined,
+      pageSize: typeof args.pageSize === 'number' ? args.pageSize : undefined,
+    });
+
+    return {
+      success: true,
+      message: `Found ${searchResponse.results.length} candidate(s) matching "${args.query.trim()}".`,
+      data: {
+        resultsCount: searchResponse.results.length,
+        candidates: searchResponse.results,
+      },
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Error querying Vertex AI Search talent datastore.',
+      message: 'Failed to search talent pool.',
+    };
+  }
+}
+
+// Domain-named function aliases
+export const executeUpdateProjectLifecycleStage = executeUpdateStatus;
+export const executeRenameProjectDocument = executeRenameProject;
+export const executeUpdateProjectBriefDescription = executeUpdateDescription;
+export const executeAddProjectRequirementTag = executeAddTag;
+export const executeRemoveProjectRequirementTag = executeRemoveTag;
+
+/**
+ * Tool dispatcher mapping domain-specific function names to executors.
+ * Acts as the translation layer between agent tool calls and generic infrastructure mutations.
  */
 export async function dispatchToolCall(
   projectId: string,
@@ -173,16 +221,29 @@ export async function dispatchToolCall(
   args: Record<string, unknown>
 ): Promise<ToolExecutionResult> {
   switch (toolName) {
+    case 'updateProjectLifecycleStage':
     case 'updateStatus':
       return executeUpdateStatus(projectId, args as { status?: string });
+
+    case 'renameProjectDocument':
     case 'renameProject':
       return executeRenameProject(projectId, args as { title?: string });
+
+    case 'updateProjectBriefDescription':
     case 'updateDescription':
       return executeUpdateDescription(projectId, args as { description?: string });
+
+    case 'addProjectRequirementTag':
     case 'addTag':
       return executeAddTag(projectId, args as { tag?: string });
+
+    case 'removeProjectRequirementTag':
     case 'removeTag':
       return executeRemoveTag(projectId, args as { tag?: string });
+
+    case 'searchTalentPool':
+      return executeSearchTalentPool(projectId, args as { query?: string; filter?: string; pageSize?: number });
+
     default:
       return {
         success: false,
