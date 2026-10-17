@@ -155,6 +155,13 @@ const SupervisorConsole: React.FC = () => {
     };
   }, [refreshInbox]);
 
+  // Refresh inbox when switching to the emails tab
+  useEffect(() => {
+    if (activeTab === 'emails') {
+      refreshInbox();
+    }
+  }, [activeTab, refreshInbox]);
+
   // If first visit without explicit tabs or URL params, load most recent existing project from Firestore
   useEffect(() => {
     if (initialData.isFirstVisit && openProjectIds.length === 0) {

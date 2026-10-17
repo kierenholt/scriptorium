@@ -12,8 +12,66 @@ import {
 } from './types';
 
 /**
+ * Cache an inbound email retrieved from Resend Inbound Receiving API into Firestore 'emails' collection.
+ * Ensures an em-xxxxxx ID is assigned and persists full content for repository tracking.
+ */
+async function cacheInboundEmailToFirestore(re: any): Promise<string> {
+  const resendId = re.id;
+  if (!resendId) return '';
+
+  try {
+    // 1. Check if record already exists by resendId
+    const snap = await db.collection('emails').where('resendId', '==', resendId).limit(1).get();
+    if (!snap.empty) {
+      const existingDoc = snap.docs[0];
+      const existingData = existingDoc.data();
+      const newBody = re.text || re.html || '';
+      if (newBody && !existingData.body) {
+        await existingDoc.ref.set(
+          {
+            body: newBody,
+            content: newBody,
+          },
+          { merge: true }
+        );
+      }
+      return existingDoc.id;
+    }
+
+    // 2. Check if record already exists by document ID == resendId
+    const directDoc = await db.collection('emails').doc(resendId).get();
+    if (directDoc.exists) {
+      return directDoc.id;
+    }
+
+    // 3. Create new record with strict em-xxxxxx ID convention
+    const emailEntityId = generateEntityId('em');
+    const toAddress = Array.isArray(re.to) ? re.to.join(', ') : (re.to || '');
+    const bodyContent = re.html || re.text || '';
+
+    await db.collection('emails').doc(emailEntityId).set({
+      id: emailEntityId,
+      emailId: emailEntityId,
+      resendId,
+      direction: 'inbound',
+      to: toAddress,
+      from: re.from || '',
+      subject: re.subject || '(No Subject)',
+      body: bodyContent,
+      content: re.text || re.html || '',
+      sentAt: re.created_at || new Date().toISOString(),
+      createdAt: re.created_at || new Date().toISOString(),
+    });
+
+    return emailEntityId;
+  } catch (err: any) {
+    return '';
+  }
+}
+
+/**
  * Execute readCandidateEmailMessage tool.
- * Reads or searches dispatched / received emails via Resend API and Firestore emails collection.
+ * Reads or searches dispatched / received emails via Resend Inbound Receiving API, Outbound API, and Firestore emails collection.
  */
 export async function executeReadCandidateEmailMessage(
   _projectId: string,
@@ -41,8 +99,8 @@ export async function executeReadCandidateEmailMessage(
               subject: data.subject,
               to: data.to,
               from: data.from,
-              content: data.body,
-              createdAt: data.sentAt,
+              content: data.body || data.content,
+              createdAt: data.sentAt || data.createdAt,
             },
           };
         }
@@ -50,9 +108,34 @@ export async function executeReadCandidateEmailMessage(
     }
 
     if (apiKey) {
+      // Query Resend Inbound Receiving API first
+      try {
+        const receivingRes = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
+          headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
+        });
+        if (receivingRes.ok) {
+          const data: any = await receivingRes.json();
+          const cachedId = await cacheInboundEmailToFirestore(data);
+          return {
+            success: true,
+            message: `Retrieved received inbound email "${data.subject}" for ID ${emailId}.`,
+            data: {
+              emailId: cachedId || data.id,
+              resendId: data.id,
+              subject: data.subject,
+              to: Array.isArray(data.to) ? data.to.join(', ') : (data.to || ''),
+              from: data.from,
+              content: data.text || data.html || '',
+              createdAt: data.created_at,
+            },
+          };
+        }
+      } catch (err: any) {}
+
+      // Query Resend Outbound API
       try {
         const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
-          headers: { Authorization: `Bearer ${apiKey}` },
+          headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
         });
         if (res.ok) {
           const data: any = await res.json();
@@ -69,37 +152,137 @@ export async function executeReadCandidateEmailMessage(
             },
           };
         }
-      } catch (err: any) {
-        // Fall back to Firestore
-      }
+      } catch (err: any) {}
     }
 
+    // Check Firestore by emailId or resendId
     try {
-      const doc = await db.collection('emails').doc(emailId).get();
-      if (doc.exists) {
-        const data = doc.data()!;
+      const qSnap = await db.collection('emails').where('emailId', '==', emailId).limit(1).get();
+      if (!qSnap.empty) {
+        const data = qSnap.docs[0].data();
         return {
           success: true,
           message: `Retrieved email "${data.subject}" from repository records.`,
           data: {
-            emailId: doc.id,
+            emailId: qSnap.docs[0].id,
             resendId: data.resendId,
             subject: data.subject,
             to: data.to,
             from: data.from,
-            content: data.body,
-            createdAt: data.sentAt,
+            content: data.body || data.content,
+            createdAt: data.sentAt || data.createdAt,
+          },
+        };
+      }
+      const rSnap = await db.collection('emails').where('resendId', '==', emailId).limit(1).get();
+      if (!rSnap.empty) {
+        const data = rSnap.docs[0].data();
+        return {
+          success: true,
+          message: `Retrieved email "${data.subject}" from repository records.`,
+          data: {
+            emailId: rSnap.docs[0].id,
+            resendId: data.resendId,
+            subject: data.subject,
+            to: data.to,
+            from: data.from,
+            content: data.body || data.content,
+            createdAt: data.sentAt || data.createdAt,
           },
         };
       }
     } catch (e) {}
   }
 
-  // 2. Query Resend API emails list
+  // 2. Search Resend Inbound Receiving API
   if (apiKey) {
     try {
+      const receivingRes = await fetch('https://api.resend.com/emails/receiving', {
+        headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
+      });
+      if (receivingRes.ok) {
+        const listData: any = await receivingRes.json();
+        const emails: any[] = listData.data || (Array.isArray(listData) ? listData : []);
+
+        // Direct header/metadata matching
+        for (const e of emails) {
+          const matchSender = !sender || (e.from && e.from.toLowerCase().includes(sender));
+          const matchQuery =
+            !query ||
+            (e.subject && e.subject.toLowerCase().includes(query)) ||
+            (e.from && e.from.toLowerCase().includes(query));
+          const matchRecip =
+            !recipient ||
+            (Array.isArray(e.to)
+              ? e.to.some((t: string) => t.toLowerCase().includes(recipient))
+              : typeof e.to === 'string' && e.to.toLowerCase().includes(recipient));
+
+          if (matchSender && matchRecip && matchQuery) {
+            const detailRes = await fetch(`https://api.resend.com/emails/receiving/${e.id}`, {
+              headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
+            });
+            const detail = detailRes.ok ? await detailRes.json() : e;
+            const cachedId = await cacheInboundEmailToFirestore(detail);
+            return {
+              success: true,
+              message: `Found received email matching search: "${detail.subject}".`,
+              data: {
+                emailId: cachedId || detail.id,
+                resendId: detail.id,
+                subject: detail.subject,
+                to: Array.isArray(detail.to) ? detail.to.join(', ') : (detail.to || ''),
+                from: detail.from,
+                content: detail.text || detail.html || '',
+                createdAt: detail.created_at,
+              },
+            };
+          }
+        }
+
+        // Body content matching for recent inbound emails when query is specified
+        if (query) {
+          for (const e of emails.slice(0, 10)) {
+            const matchSender = !sender || (e.from && e.from.toLowerCase().includes(sender));
+            const matchRecip =
+              !recipient ||
+              (Array.isArray(e.to)
+                ? e.to.some((t: string) => t.toLowerCase().includes(recipient))
+                : typeof e.to === 'string' && e.to.toLowerCase().includes(recipient));
+            if (matchSender && matchRecip) {
+              const detailRes = await fetch(`https://api.resend.com/emails/receiving/${e.id}`, {
+                headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
+              });
+              if (detailRes.ok) {
+                const detail = await detailRes.json();
+                const text = (detail.text || '').toLowerCase();
+                const html = (detail.html || '').toLowerCase();
+                if (text.includes(query) || html.includes(query)) {
+                  const cachedId = await cacheInboundEmailToFirestore(detail);
+                  return {
+                    success: true,
+                    message: `Found received email matching query in body: "${detail.subject}".`,
+                    data: {
+                      emailId: cachedId || detail.id,
+                      resendId: detail.id,
+                      subject: detail.subject,
+                      to: Array.isArray(detail.to) ? detail.to.join(', ') : (detail.to || ''),
+                      from: detail.from,
+                      content: detail.text || detail.html || '',
+                      createdAt: detail.created_at,
+                    },
+                  };
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (err: any) {}
+
+    // Search Resend Outbound API
+    try {
       const res = await fetch('https://api.resend.com/emails', {
-        headers: { Authorization: `Bearer ${apiKey}` },
+        headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
       });
       if (res.ok) {
         const listData: any = await res.json();
@@ -120,7 +303,7 @@ export async function executeReadCandidateEmailMessage(
 
         if (matched) {
           const detailRes = await fetch(`https://api.resend.com/emails/${matched.id}`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
+            headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
           });
           const detail = detailRes.ok ? await detailRes.json() : matched;
           return {
@@ -137,9 +320,7 @@ export async function executeReadCandidateEmailMessage(
           };
         }
       }
-    } catch (err: any) {
-      // Fallback to Firestore
-    }
+    } catch (err: any) {}
   }
 
   // 3. Fallback: Search Firestore 'emails' collection
@@ -468,18 +649,30 @@ export async function executeAssignEmailToProject(
       }
     }
 
-    // If not found in Firestore, query the Resend API directly
+    // If not found in Firestore, query Resend Inbound Receiving API first, then Outbound API
     if (!emailDoc.exists) {
       const apiKey = process.env.RESEND_API_KEY;
       if (apiKey) {
         try {
-          const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
+          const receivingRes = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
+            headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
           });
-          if (res.ok) {
-            resendDetail = await res.json();
+          if (receivingRes.ok) {
+            resendDetail = await receivingRes.json();
+            resendDetail.direction = 'inbound';
           }
         } catch (err: any) {}
+
+        if (!resendDetail) {
+          try {
+            const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
+              headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
+            });
+            if (res.ok) {
+              resendDetail = await res.json();
+            }
+          } catch (err: any) {}
+        }
       }
     }
 
@@ -524,7 +717,7 @@ export async function executeAssignEmailToProject(
     const projectEmail: ProjectEmail = {
       id: resolvedEmailId,
       resendId,
-      direction: emailDoc.exists ? (emailData.direction || 'inbound') : 'inbound',
+      direction: emailDoc.exists ? (emailData.direction || 'inbound') : (resendDetail.direction || 'inbound'),
       from: fromAddress || 'unknown@sender.com',
       to: toAddress || targetProjectId,
       subject: subject || '(No Subject)',
@@ -629,26 +822,51 @@ export async function executeListUnassignedInboxEmails(
       }
     }
 
-    // Query Resend API directly for incoming/unassigned emails sitting in the inbox
+    // Query Resend Inbound Receiving API directly for incoming/unassigned emails sitting in the inbox
     const apiKey = process.env.RESEND_API_KEY;
     if (apiKey) {
       try {
-        const res = await fetch('https://api.resend.com/emails', {
-          headers: { Authorization: `Bearer ${apiKey}` },
+        const res = await fetch('https://api.resend.com/emails/receiving', {
+          headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
         });
         if (res.ok) {
           const listData: any = await res.json();
-          const resendEmails = listData.data || [];
-          for (const re of resendEmails) {
+          const receivedEmails = listData.data || (Array.isArray(listData) ? listData : []);
+          for (const re of receivedEmails) {
             if (!assignedIds.has(re.id) && !unassigned.some((u) => u.emailId === re.id || u.resendId === re.id)) {
+              let bodySnippet = '';
+              try {
+                const detailRes = await fetch(`https://api.resend.com/emails/receiving/${re.id}`, {
+                  headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
+                });
+                if (detailRes.ok) {
+                  const detail = await detailRes.json();
+                  bodySnippet = (detail.text || detail.html || '').substring(0, 200);
+                  const cachedId = await cacheInboundEmailToFirestore(detail);
+                  unassigned.push({
+                    emailId: cachedId || re.id,
+                    resendId: re.id,
+                    subject: re.subject || '(No Subject)',
+                    from: re.from || '',
+                    to: Array.isArray(re.to) ? re.to.join(', ') : (re.to || ''),
+                    direction: 'inbound',
+                    body: bodySnippet,
+                    receivedAt: re.created_at || '',
+                  });
+                  continue;
+                }
+              } catch (e) {}
+
+              // If detail fetch failed, push summary & cache basic
+              const cachedId = await cacheInboundEmailToFirestore(re);
               unassigned.push({
-                emailId: re.id,
+                emailId: cachedId || re.id,
                 resendId: re.id,
                 subject: re.subject || '(No Subject)',
                 from: re.from || '',
-                to: re.to || '',
+                to: Array.isArray(re.to) ? re.to.join(', ') : (re.to || ''),
                 direction: 'inbound',
-                body: `Email from ${re.from} received via Resend API.`,
+                body: bodySnippet,
                 receivedAt: re.created_at || '',
               });
             }

@@ -19,6 +19,16 @@ test.describe('Email Endpoint & Agent Email Retrieval Integration Tests', () => 
         console.warn(`[Cleanup Warning] Failed to delete test email ${emailId}:`, err.message);
       }
     }
+    // Also clean up any cached email documents matching created IDs
+    try {
+      const snap = await db.collection('emails').get();
+      for (const doc of snap.docs) {
+        const d = doc.data();
+        if (d.resendId && createdEmailIds.includes(d.resendId)) {
+          await doc.ref.delete();
+        }
+      }
+    } catch (e) {}
     createdEmailIds.length = 0;
 
     // 2. Clean up test Firestore project document and its message subcollection
@@ -54,8 +64,7 @@ test.describe('Email Endpoint & Agent Email Retrieval Integration Tests', () => 
     });
     expect(seedRes.status()).toBe(200);
 
-    // 3. Dispatch Email B (The target "different" email that contains the verification token)
-    // We send Email B directly via the Resend API and persist it to Firestore 'emails'
+    const testRecipientB = `verify-${uniqueTokenB.toLowerCase()}@bronoogda.resend.app`;
     const emailSubjectB = `Scriptorium Verification Token: ${uniqueTokenB}`;
     const emailHtmlB = `<p>Your unique Scriptorium security verification code is: <strong>${uniqueTokenB}</strong>.</p>`;
 
@@ -67,31 +76,16 @@ test.describe('Email Endpoint & Agent Email Retrieval Integration Tests', () => 
       },
       body: JSON.stringify({
         from: fromEmail,
-        to: [testRecipient],
+        to: [testRecipientB],
         subject: emailSubjectB,
         html: emailHtmlB,
+        text: `Your unique Scriptorium security verification code is: ${uniqueTokenB}.`,
       }),
     });
     expect(resendResB.ok).toBe(true);
     const resendDataB = await resendResB.json();
     expect(resendDataB.id).toBeDefined();
     createdEmailIds.push(resendDataB.id);
-
-    // Save record of Email B to Firestore for repository tracking with em- entity ID convention
-    const emailDocIdB = generateEntityId('em');
-    createdEmailIds.push(emailDocIdB);
-    const db = getDb(testConfig);
-    await db.collection('emails').doc(emailDocIdB).set({
-      id: emailDocIdB,
-      emailId: emailDocIdB,
-      resendId: resendDataB.id,
-      to: testRecipient,
-      from: fromEmail,
-      type: 'verification',
-      subject: emailSubjectB,
-      body: emailHtmlB,
-      sentAt: new Date().toISOString(),
-    });
 
     // 4. Dispatch Email A (A different test email sent via the Cloud Function endpoint)
     const emailUrl = getFunctionUrl(testConfig, 'emailService');
@@ -131,6 +125,7 @@ test.describe('Email Endpoint & Agent Email Retrieval Integration Tests', () => 
     expect(sseResponseText).toContain('event: done');
 
     // 6. Fetch the persisted agent message from Firestore projects/{projectId}/messages
+    const db = getDb(testConfig);
     const messagesSnap = await db
       .collection('projects')
       .doc(testProjectId)

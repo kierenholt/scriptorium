@@ -20,6 +20,16 @@ test.describe('Supervisor Console Incoming Email Inbox & Assignment Tests', () =
         console.warn(`[Cleanup Warning] Failed to delete test email ${emailId}:`, err.message);
       }
     }
+    // Also clean up any cached email documents matching created IDs
+    try {
+      const snap = await db.collection('emails').get();
+      for (const doc of snap.docs) {
+        const d = doc.data();
+        if (d.resendId && createdEmailIds.includes(d.resendId)) {
+          await doc.ref.delete();
+        }
+      }
+    } catch (e) {}
     createdEmailIds.length = 0;
 
     if (testProjectId) {
@@ -41,12 +51,12 @@ test.describe('Supervisor Console Incoming Email Inbox & Assignment Tests', () =
       throw new Error('RESEND_API_KEY environment variable is not defined.');
     }
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'info@seamcode.co.uk';
-    const targetRecipient = 'info@seamcode.co.uk';
     const random8Digits = String(Math.floor(10000000 + Math.random() * 90000000));
+    const targetRecipient = `candidate-${random8Digits}@bronoogda.resend.app`;
     const testSubject = `Candidate Portfolio Assessment ${random8Digits}`;
     const testBody = `Here is my completed transcreation test sample: REF-${random8Digits}.`;
 
-    // 2. Dispatch email strictly via the Resend API (NO direct Firestore injection)
+    // 2. Dispatch genuine inbound email strictly via the Resend API to @bronoogda.resend.app (NO direct Firestore injection)
     const resendRes = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -65,6 +75,21 @@ test.describe('Supervisor Console Incoming Email Inbox & Assignment Tests', () =
     const resendData = await resendRes.json();
     expect(resendData.id).toBeDefined();
     createdEmailIds.push(resendData.id);
+
+    // Wait until the dispatched email is received by Resend's inbound receiving API
+    for (let i = 0; i < 15; i++) {
+      const recRes = await fetch('https://api.resend.com/emails/receiving', {
+        headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
+      });
+      if (recRes.ok) {
+        const recData = await recRes.json();
+        const items = recData.data || (Array.isArray(recData) ? recData : []);
+        if (items.some((item) => (item.to && (Array.isArray(item.to) ? item.to.includes(targetRecipient) : item.to.includes(targetRecipient))) || (item.subject && item.subject.includes(random8Digits)))) {
+          break;
+        }
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
 
     // 3. Seed project record in Firestore via API
     await seedTestProject(testConfig, testProjectId);

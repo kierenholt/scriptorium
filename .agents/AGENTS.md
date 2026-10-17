@@ -18,6 +18,7 @@
   - To verify local service health: use `npm run check:services`.
   - To tail Firestore logs: use `npm run logs:local` (local emulator) or `npm run logs` (production).
   - Do not ask the user where test specs go or how to execute them; follow this structure unconditionally.
+- **Direct Host Execution (No Sandbox)**: All test executions (`node scripts/run_tests.js ...`, Playwright specs) MUST run directly on the host machine with host networking enabled (`BypassSandbox: true`). Agents must NEVER execute tests inside a network-isolated sandbox container, as sandbox network isolation severs loopback communication with host ports (3000, 5001, 8080) and produces false "services offline" failures.
 
 ## 4. Mandatory Test Rule: Service Pre-Flight Assertions
 - **AT THE BEGINNING OF EACH TEST, THE TEST MUST ASSERT THAT THE SERVICES ARE RUNNING.**

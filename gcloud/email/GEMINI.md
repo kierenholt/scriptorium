@@ -5,7 +5,8 @@ The Email Service dispatches transactional outbound email communications across 
 ## Configuration & Local Port
 
 - **Local Port**: `8085` (configured via `VITE_EMAIL_SERVICE_PORT` / `VITE_EMAIL_SERVICE_URL`)
-- **Sender Address**: Configured via `RESEND_FROM_EMAIL` (`info@scriptorium.co.uk`)
+- **Sender Address**: Configured via `RESEND_FROM_EMAIL` (`info@scriptorium.co.uk` / `info@seamcode.co.uk`)
+- **Inbound Email Address**: Inbound emails can be sent to `<anything>@bronoogda.resend.app` (e.g. `candidate-<id>@bronoogda.resend.app`). Resend automatically receives incoming emails sent to this domain and makes them available via the Resend Inbound Receiving API (`https://api.resend.com/emails/receiving`).
 - **Local MailDev**: Listens on `http://127.0.0.1:1080` (SMTP `1025`)
 - **GCP Region**: `europe-west2`
 

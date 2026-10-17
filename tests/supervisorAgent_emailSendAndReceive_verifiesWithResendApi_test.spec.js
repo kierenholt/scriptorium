@@ -22,6 +22,16 @@ test.describe('Supervisor Agent Email Send & Receive E2E Tests', () => {
         console.warn(`[Cleanup Warning] Failed to delete test email ${emailId}:`, err.message);
       }
     }
+    // Also clean up any cached email documents matching created IDs
+    try {
+      const snap = await db.collection('emails').get();
+      for (const doc of snap.docs) {
+        const d = doc.data();
+        if (d.resendId && createdEmailIds.includes(d.resendId)) {
+          await doc.ref.delete();
+        }
+      }
+    } catch (e) {}
     createdEmailIds.length = 0;
 
     // 2. Clean up test Firestore project document and messages
@@ -127,12 +137,12 @@ test.describe('Supervisor Agent Email Send & Receive E2E Tests', () => {
       throw new Error('RESEND_API_KEY environment variable is not defined.');
     }
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'info@seamcode.co.uk';
-    const targetRecipient = 'info@seamcode.co.uk';
     const random8DigitsReceive = String(Math.floor(10000000 + Math.random() * 90000000));
+    const targetRecipient = `candidate-${random8DigitsReceive}@bronoogda.resend.app`;
     const receiveSubject = `Candidate Dossier Reference ${random8DigitsReceive}`;
     const receiveHtml = `<p>The candidate evaluation reference number is <strong>${random8DigitsReceive}</strong>.</p>`;
 
-    // 2. Dispatch an email using Resend API to info@seamcode.co.uk containing the 8-digit ID
+    // 2. Dispatch a genuine inbound email using Resend API to @bronoogda.resend.app (NO direct Firestore injection)
     const resendRes = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -152,18 +162,6 @@ test.describe('Supervisor Agent Email Send & Receive E2E Tests', () => {
     expect(resendData.id).toBeDefined();
     createdEmailIds.push(resendData.id);
 
-    // Save record to Firestore 'emails' collection for tracking
-    const db = getDb(testConfig);
-    await db.collection('emails').doc(resendData.id).set({
-      id: resendData.id,
-      emailId: resendData.id,
-      to: targetRecipient,
-      from: fromEmail,
-      subject: receiveSubject,
-      body: receiveHtml,
-      sentAt: new Date().toISOString(),
-    });
-
     // 3. Seed project record in Firestore via API
     await seedTestProject(testConfig, testProjectId);
 
@@ -173,12 +171,12 @@ test.describe('Supervisor Agent Email Send & Receive E2E Tests', () => {
     const titleHeading = page.locator('[data-testid="project-title-heading"]');
     await expect(titleHeading).toBeVisible({ timeout: 15000 });
 
-    // 5. Ask the agent in the chat UI to read the received email and extract the 8-digit ID
+    // 5. Ask the agent in the chat UI to read the received inbound email and extract the 8-digit ID
     const chatInput = page.locator('[data-testid="chat-input"]');
     const sendBtn = page.locator('[data-testid="chat-send-btn"]');
     await expect(chatInput).toBeVisible();
 
-    const receivePrompt = `Please check our email communications sent to ${targetRecipient} with subject containing "Candidate Dossier Reference". What is the 8-digit reference ID?`;
+    const receivePrompt = `Please check our received emails with subject containing "Candidate Dossier Reference". What is the 8-digit reference ID?`;
     await chatInput.fill(receivePrompt);
     await expect(sendBtn).toBeEnabled();
     await sendBtn.click();
@@ -201,6 +199,7 @@ test.describe('Supervisor Agent Email Send & Receive E2E Tests', () => {
     await expect(chatWindow).toContainText(random8DigitsReceive);
 
     // 10. Also verify the persisted agent response in Firestore contains the exact 8-digit ID
+    const db = getDb(testConfig);
     const messagesSnap = await db
       .collection('projects')
       .doc(testProjectId)
