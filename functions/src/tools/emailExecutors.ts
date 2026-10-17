@@ -71,6 +71,50 @@ async function cacheInboundEmailToFirestore(re: any): Promise<string> {
 }
 
 /**
+ * Normalizes email metadata into a uniform ToolExecutionResult success response.
+ */
+function buildEmailSuccessResult(
+  message: string,
+  email: {
+    emailId: string;
+    resendId?: string;
+    subject?: string;
+    to?: string | string[];
+    from?: string;
+    content?: string;
+    body?: string;
+    text?: string;
+    html?: string;
+    createdAt?: string;
+    created_at?: string;
+    sentAt?: string;
+  }
+): ToolExecutionResult {
+  const toAddress = Array.isArray(email.to) ? email.to.join(', ') : (email.to || '');
+  const bodyContent =
+    email.content !== undefined
+      ? email.content
+      : email.body !== undefined
+      ? email.body
+      : email.text || email.html || '';
+  const timestamp = email.createdAt || email.created_at || email.sentAt || new Date().toISOString();
+
+  return {
+    success: true,
+    message,
+    data: {
+      emailId: email.emailId,
+      ...(email.resendId ? { resendId: email.resendId } : {}),
+      subject: email.subject || '(No Subject)',
+      to: toAddress,
+      from: email.from || '',
+      content: bodyContent,
+      createdAt: timestamp,
+    },
+  };
+}
+
+/**
  * Execute readCandidateEmailMessage tool.
  * Reads or searches dispatched / received emails via Resend Inbound Receiving API, Outbound API, and Firestore emails collection.
  */
@@ -91,19 +135,15 @@ export async function executeReadCandidateEmailMessage(
         const doc = await db.collection('emails').doc(emailId).get();
         if (doc.exists) {
           const data = doc.data()!;
-          return {
-            success: true,
-            message: `Retrieved email "${data.subject}" from repository records.`,
-            data: {
-              emailId: doc.id,
-              resendId: data.resendId,
-              subject: data.subject,
-              to: data.to,
-              from: data.from,
-              content: data.body || data.content,
-              createdAt: data.sentAt || data.createdAt,
-            },
-          };
+          return buildEmailSuccessResult(`Retrieved email "${data.subject}" from repository records.`, {
+            emailId: doc.id,
+            resendId: data.resendId,
+            subject: data.subject,
+            to: data.to,
+            from: data.from,
+            content: data.body || data.content,
+            createdAt: data.sentAt || data.createdAt,
+          });
         }
       } catch (e) {}
     }
@@ -117,19 +157,15 @@ export async function executeReadCandidateEmailMessage(
         if (receivingRes.ok) {
           const data: any = await receivingRes.json();
           const cachedId = await cacheInboundEmailToFirestore(data);
-          return {
-            success: true,
-            message: `Retrieved received inbound email "${data.subject}" for ID ${emailId}.`,
-            data: {
-              emailId: cachedId || data.id,
-              resendId: data.id,
-              subject: data.subject,
-              to: Array.isArray(data.to) ? data.to.join(', ') : (data.to || ''),
-              from: data.from,
-              content: data.text || data.html || '',
-              createdAt: data.created_at,
-            },
-          };
+          return buildEmailSuccessResult(`Retrieved received inbound email "${data.subject}" for ID ${emailId}.`, {
+            emailId: cachedId || data.id,
+            resendId: data.id,
+            subject: data.subject,
+            to: data.to,
+            from: data.from,
+            content: data.text || data.html,
+            createdAt: data.created_at,
+          });
         }
       } catch (err: any) {}
 
@@ -140,18 +176,14 @@ export async function executeReadCandidateEmailMessage(
         });
         if (res.ok) {
           const data: any = await res.json();
-          return {
-            success: true,
-            message: `Retrieved email "${data.subject}" for ID ${emailId}.`,
-            data: {
-              emailId: data.id,
-              subject: data.subject,
-              to: data.to,
-              from: data.from,
-              content: data.text || data.html,
-              createdAt: data.created_at,
-            },
-          };
+          return buildEmailSuccessResult(`Retrieved email "${data.subject}" for ID ${emailId}.`, {
+            emailId: data.id,
+            subject: data.subject,
+            to: data.to,
+            from: data.from,
+            content: data.text || data.html,
+            createdAt: data.created_at,
+          });
         }
       } catch (err: any) {}
     }
@@ -161,36 +193,28 @@ export async function executeReadCandidateEmailMessage(
       const qSnap = await db.collection('emails').where('emailId', '==', emailId).limit(1).get();
       if (!qSnap.empty) {
         const data = qSnap.docs[0].data();
-        return {
-          success: true,
-          message: `Retrieved email "${data.subject}" from repository records.`,
-          data: {
-            emailId: qSnap.docs[0].id,
-            resendId: data.resendId,
-            subject: data.subject,
-            to: data.to,
-            from: data.from,
-            content: data.body || data.content,
-            createdAt: data.sentAt || data.createdAt,
-          },
-        };
+        return buildEmailSuccessResult(`Retrieved email "${data.subject}" from repository records.`, {
+          emailId: qSnap.docs[0].id,
+          resendId: data.resendId,
+          subject: data.subject,
+          to: data.to,
+          from: data.from,
+          content: data.body || data.content,
+          createdAt: data.sentAt || data.createdAt,
+        });
       }
       const rSnap = await db.collection('emails').where('resendId', '==', emailId).limit(1).get();
       if (!rSnap.empty) {
         const data = rSnap.docs[0].data();
-        return {
-          success: true,
-          message: `Retrieved email "${data.subject}" from repository records.`,
-          data: {
-            emailId: rSnap.docs[0].id,
-            resendId: data.resendId,
-            subject: data.subject,
-            to: data.to,
-            from: data.from,
-            content: data.body || data.content,
-            createdAt: data.sentAt || data.createdAt,
-          },
-        };
+        return buildEmailSuccessResult(`Retrieved email "${data.subject}" from repository records.`, {
+          emailId: rSnap.docs[0].id,
+          resendId: data.resendId,
+          subject: data.subject,
+          to: data.to,
+          from: data.from,
+          content: data.body || data.content,
+          createdAt: data.sentAt || data.createdAt,
+        });
       }
     } catch (e) {}
   }
@@ -224,19 +248,15 @@ export async function executeReadCandidateEmailMessage(
             });
             const detail = detailRes.ok ? await detailRes.json() : e;
             const cachedId = await cacheInboundEmailToFirestore(detail);
-            return {
-              success: true,
-              message: `Found received email matching search: "${detail.subject}".`,
-              data: {
-                emailId: cachedId || detail.id,
-                resendId: detail.id,
-                subject: detail.subject,
-                to: Array.isArray(detail.to) ? detail.to.join(', ') : (detail.to || ''),
-                from: detail.from,
-                content: detail.text || detail.html || '',
-                createdAt: detail.created_at,
-              },
-            };
+            return buildEmailSuccessResult(`Found received email matching search: "${detail.subject}".`, {
+              emailId: cachedId || detail.id,
+              resendId: detail.id,
+              subject: detail.subject,
+              to: detail.to,
+              from: detail.from,
+              content: detail.text || detail.html,
+              createdAt: detail.created_at,
+            });
           }
         }
 
@@ -259,19 +279,15 @@ export async function executeReadCandidateEmailMessage(
                 const html = (detail.html || '').toLowerCase();
                 if (text.includes(query) || html.includes(query)) {
                   const cachedId = await cacheInboundEmailToFirestore(detail);
-                  return {
-                    success: true,
-                    message: `Found received email matching query in body: "${detail.subject}".`,
-                    data: {
-                      emailId: cachedId || detail.id,
-                      resendId: detail.id,
-                      subject: detail.subject,
-                      to: Array.isArray(detail.to) ? detail.to.join(', ') : (detail.to || ''),
-                      from: detail.from,
-                      content: detail.text || detail.html || '',
-                      createdAt: detail.created_at,
-                    },
-                  };
+                  return buildEmailSuccessResult(`Found received email matching query in body: "${detail.subject}".`, {
+                    emailId: cachedId || detail.id,
+                    resendId: detail.id,
+                    subject: detail.subject,
+                    to: detail.to,
+                    from: detail.from,
+                    content: detail.text || detail.html,
+                    createdAt: detail.created_at,
+                  });
                 }
               }
             }
@@ -307,18 +323,14 @@ export async function executeReadCandidateEmailMessage(
             headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
           });
           const detail = detailRes.ok ? await detailRes.json() : matched;
-          return {
-            success: true,
-            message: `Found email matching search: "${detail.subject}".`,
-            data: {
-              emailId: detail.id,
-              subject: detail.subject,
-              to: detail.to,
-              from: detail.from,
-              content: detail.text || detail.html,
-              createdAt: detail.created_at,
-            },
-          };
+          return buildEmailSuccessResult(`Found email matching search: "${detail.subject}".`, {
+            emailId: detail.id,
+            subject: detail.subject,
+            to: detail.to,
+            from: detail.from,
+            content: detail.text || detail.html,
+            createdAt: detail.created_at,
+          });
         }
       }
     } catch (err: any) {}
@@ -338,18 +350,14 @@ export async function executeReadCandidateEmailMessage(
           !query || sub.includes(query) || (typeof data.body === 'string' && data.body.toLowerCase().includes(query)) || from.includes(query);
         const matchRecip = !recipient || to.includes(recipient);
         if (matchQuery && matchRecip && matchSender) {
-          return {
-            success: true,
-            message: `Found email from repository records: "${data.subject}".`,
-            data: {
-              emailId: doc.id,
-              subject: data.subject,
-              to: data.to,
-              from: data.from,
-              content: data.body,
-              createdAt: data.sentAt,
-            },
-          };
+          return buildEmailSuccessResult(`Found email from repository records: "${data.subject}".`, {
+            emailId: doc.id,
+            subject: data.subject,
+            to: data.to,
+            from: data.from,
+            content: data.body,
+            createdAt: data.sentAt,
+          });
         }
       }
     }

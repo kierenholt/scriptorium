@@ -256,6 +256,71 @@ export const executeSaveArtifact = executeSaveProjectArtifact;
 export const executeAttachProjectDeliverable = executeSaveProjectArtifact;
 
 /**
+ * Shared helper to load a project and search its artifacts array by criteria.
+ */
+export async function findArtifactInProject(
+  projectId: string,
+  criteria: {
+    artifactId?: string;
+    name?: string;
+    comment?: string;
+    query?: string;
+  }
+): Promise<{
+  projectExists: boolean;
+  artifactsPresent: boolean;
+  artifact?: ProjectArtifact;
+}> {
+  const docSnap = await db.collection('projects').doc(projectId).get();
+  if (!docSnap.exists) {
+    return { projectExists: false, artifactsPresent: false };
+  }
+
+  const projectData = docSnap.data() as ProjectDocument;
+  const artifacts: ProjectArtifact[] = projectData.artifacts || [];
+  if (artifacts.length === 0) {
+    return { projectExists: true, artifactsPresent: false };
+  }
+
+  let matched: ProjectArtifact | undefined;
+
+  // 1. Direct artifactId exact match
+  if (criteria.artifactId) {
+    const idTrim = criteria.artifactId.trim().toLowerCase();
+    matched = artifacts.find((a) => a.id.toLowerCase() === idTrim);
+  }
+
+  // 2. Direct name match (substring or exact)
+  if (!matched && criteria.name) {
+    const nameTrim = criteria.name.trim().toLowerCase();
+    matched = artifacts.find((a) => a.name.toLowerCase().includes(nameTrim));
+  }
+
+  // 3. Direct comment match
+  if (!matched && criteria.comment) {
+    const commentTrim = criteria.comment.trim().toLowerCase();
+    matched = artifacts.find((a) => a.comment && a.comment.toLowerCase().includes(commentTrim));
+  }
+
+  // 4. Query term match across ID, name, or comment
+  if (!matched && criteria.query) {
+    const queryTrim = criteria.query.trim().toLowerCase();
+    matched = artifacts.find((a) => {
+      const idMatch = a.id.toLowerCase() === queryTrim;
+      const nameMatch = a.name.toLowerCase().includes(queryTrim);
+      const commentMatch = a.comment && a.comment.toLowerCase().includes(queryTrim);
+      return idMatch || nameMatch || commentMatch;
+    });
+  }
+
+  return {
+    projectExists: true,
+    artifactsPresent: true,
+    artifact: matched,
+  };
+}
+
+/**
  * Execute getProjectArtifactDownloadUrl tool.
  * Searches project artifacts by ID, filename, or comment keyword, and generates a timeboxed secure download URL.
  */
@@ -272,8 +337,13 @@ export async function executeGetProjectArtifactDownloadUrl(
     };
   }
 
-  const docSnap = await db.collection('projects').doc(projectId).get();
-  if (!docSnap.exists) {
+  const lookup = await findArtifactInProject(projectId, {
+    artifactId: args.artifactId,
+    comment: args.comment,
+    query: searchTerm,
+  });
+
+  if (!lookup.projectExists) {
     return {
       success: false,
       error: `Project "${projectId}" not found.`,
@@ -281,10 +351,7 @@ export async function executeGetProjectArtifactDownloadUrl(
     };
   }
 
-  const projectData = docSnap.data() as ProjectDocument;
-  const artifacts: ProjectArtifact[] = projectData.artifacts || [];
-
-  if (artifacts.length === 0) {
+  if (!lookup.artifactsPresent) {
     return {
       success: false,
       error: `No artifacts exist for project "${projectId}".`,
@@ -292,29 +359,7 @@ export async function executeGetProjectArtifactDownloadUrl(
     };
   }
 
-  const lowerTerm = searchTerm.toLowerCase();
-
-  let matched: ProjectArtifact | undefined;
-
-  if (args.artifactId) {
-    matched = artifacts.find((a) => a.id === args.artifactId?.trim());
-  }
-
-  if (!matched && args.comment) {
-    const cLower = args.comment.trim().toLowerCase();
-    matched = artifacts.find((a) => a.comment && a.comment.toLowerCase().includes(cLower));
-  }
-
-  if (!matched) {
-    matched = artifacts.find((a) => {
-      const idMatch = a.id.toLowerCase() === lowerTerm;
-      const nameMatch = a.name.toLowerCase().includes(lowerTerm);
-      const commentMatch = a.comment && a.comment.toLowerCase().includes(lowerTerm);
-      return idMatch || nameMatch || commentMatch;
-    });
-  }
-
-  if (!matched) {
+  if (!lookup.artifact) {
     return {
       success: false,
       error: `No artifact found matching "${searchTerm}".`,
@@ -322,6 +367,7 @@ export async function executeGetProjectArtifactDownloadUrl(
     };
   }
 
+  const matched = lookup.artifact;
   const expiryMinutes = args.expiresInMinutes || 15;
   const { url, expiresAt } = buildArtifactDownloadUrl(
     serverConfig.functionsBaseUrl,
@@ -448,8 +494,12 @@ export async function executeLookupProjectArtifact(
     };
   }
 
-  const docSnap = await db.collection('projects').doc(projectId).get();
-  if (!docSnap.exists) {
+  const lookup = await findArtifactInProject(projectId, {
+    artifactId: args.artifactId,
+    name: args.name,
+  });
+
+  if (!lookup.projectExists) {
     return {
       success: false,
       error: `Project "${projectId}" does not exist.`,
@@ -457,28 +507,15 @@ export async function executeLookupProjectArtifact(
     };
   }
 
-  const data = docSnap.data() as ProjectDocument;
-  const artifacts: ProjectArtifact[] = data.artifacts || [];
-
-  let matched: ProjectArtifact | undefined;
-  if (args.artifactId) {
-    const targetId = args.artifactId.trim().toLowerCase();
-    matched = artifacts.find((a) => a.id.toLowerCase() === targetId);
-  }
-
-  if (!matched && args.name) {
-    const targetName = args.name.trim().toLowerCase();
-    matched = artifacts.find((a) => a.name.toLowerCase().includes(targetName));
-  }
-
-  if (!matched) {
+  if (!lookup.artifact) {
     return {
       success: false,
-      error: `No artifact found matching criteria.`,
+      error: 'No artifact found matching criteria.',
       message: `Could not find any artifact in project "${projectId}" matching the query.`,
     };
   }
 
+  const matched = lookup.artifact;
   return {
     success: true,
     message: `Artifact "${matched.name}" (${matched.id}) found in project repository.`,
