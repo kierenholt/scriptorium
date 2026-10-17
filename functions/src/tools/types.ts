@@ -64,6 +64,7 @@ export interface SendEmailArgs {
   to?: string;
   subject?: string;
   body?: string;
+  projectId?: string;
 }
 
 export interface SaveProjectArtifactArgs {
@@ -117,11 +118,13 @@ export interface ShortlistCandidateArgs {
   status?: ShortlistStatus | string;
   notes?: string;
   dayRate?: string | number;
+  projectId?: string;
 }
 
 export interface ListShortlistedTalentsArgs {
   status?: ShortlistStatus | string;
   limit?: number;
+  projectId?: string;
 }
 
 export interface UpdateShortlistedTalentStatusArgs {
@@ -135,8 +138,5 @@ export interface RemoveShortlistedTalentArgs {
   shortlistId?: string;
 }
 
-export interface DeleteEmailArgs {
-  emailId?: string;
-}
 
 

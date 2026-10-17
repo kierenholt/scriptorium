@@ -55,7 +55,8 @@ export async function sendChatMessage(
   projectId: string,
   message: string,
   callbacks: ChatStreamCallbacks,
-  fileAttachment?: { uri: string; mimeType?: string }
+  fileAttachment?: { uri: string; mimeType?: string },
+  selectedEmailId?: string
 ): Promise<void> {
   const url = `${config.apiBaseUrl}/chat`;
 
@@ -70,6 +71,7 @@ export async function sendChatMessage(
         message,
         fileUri: fileAttachment?.uri,
         fileMimeType: fileAttachment?.mimeType,
+        selectedEmailId,
       }),
     });
 

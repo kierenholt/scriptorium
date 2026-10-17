@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { TabBar } from './components/TabBar';
 import { ProjectTabSession } from './components/ProjectTabSession';
-import { EmailHub } from './components/EmailHub';
+import { EmailTabSession } from './components/EmailTabSession';
 import { OpenProjectModal } from './components/OpenProjectModal';
 import { StandaloneProjectView } from './components/StandaloneProjectView';
 import { subscribeToInboxEmails, subscribeToAllEmails, fetchRecentProjectsList } from './services/firebase';
@@ -257,19 +257,18 @@ const SupervisorConsole: React.FC = () => {
 
       {/* Main Workspace Area */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
-        {/* Special Pinned "Emails" Tab Content */}
-        {activeTab === 'emails' && (
-          <EmailHub
-            emails={allEmails.length > 0 ? allEmails : inboxEmails}
-            openProjectIds={openProjectIds}
-            activeProjectId={currentProjectId}
-            onAssignEmail={handleAssignEmail}
-            assigningId={assigningId}
-            onDeleteEmail={handleDeleteEmail}
-            onSwitchToProject={handleOpenProject}
-            projectTitles={projectTitles}
-          />
-        )}
+        {/* Pinned "Emails" Tab Session (preserved in memory with display: none for seamless background streaming) */}
+        <EmailTabSession
+          isActive={activeTab === 'emails'}
+          emails={allEmails.length > 0 ? allEmails : inboxEmails}
+          openProjectIds={openProjectIds}
+          activeProjectId={currentProjectId}
+          onAssignEmail={handleAssignEmail}
+          assigningId={assigningId}
+          onDeleteEmail={handleDeleteEmail}
+          onSwitchToProject={handleOpenProject}
+          projectTitles={projectTitles}
+        />
 
         {/* Project Tab Sessions (preserved in memory with display: none for seamless background streaming) */}
         {openProjectIds.map((pid) => (
@@ -311,14 +310,23 @@ export const App: React.FC = () => {
 
   const [isAuthenticated] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
-    const storedToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    let storedToken: string | null = null;
+    try {
+      storedToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    } catch {
+      // Ignore
+    }
     if (storedToken && storedToken === config.supervisorToken) {
       return true;
     }
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
     if (urlToken && urlToken === config.supervisorToken) {
-      sessionStorage.setItem(TOKEN_STORAGE_KEY, config.supervisorToken);
+      try {
+        sessionStorage.setItem(TOKEN_STORAGE_KEY, config.supervisorToken);
+      } catch {
+        // Ignore
+      }
       // Clean token from address bar to prevent leaking in bookmarks and screen-sharing
       params.delete('token');
       const newSearch = params.toString() ? `?${params.toString()}` : '';

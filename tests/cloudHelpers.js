@@ -176,7 +176,9 @@ async function assertServicesRunning(testConfig = {}) {
  * @param {string[]} [options.projectIds]
  */
 async function cleanupTestResources(testConfig = {}, {
-  projectIds = []
+  projectIds = [],
+  emailIds = [],
+  cleanEmailMessages = false,
 } = {}) {
   const db = testConfig.db || getDb(testConfig);
 
@@ -200,6 +202,30 @@ async function cleanupTestResources(testConfig = {}, {
       } catch (e) {
         // Continue cleanup
       }
+    }
+  }
+
+  if (db && Array.isArray(emailIds)) {
+    for (const emailId of emailIds) {
+      if (!emailId) continue;
+      try {
+        await db.collection('emails').doc(emailId).delete().catch(() => {});
+      } catch (e) {
+        // Continue cleanup
+      }
+    }
+  }
+
+  if (db && cleanEmailMessages) {
+    try {
+      const emailMsgsSnap = await db.collection('system_chats').doc('emails').collection('messages').get().catch(() => null);
+      if (emailMsgsSnap && !emailMsgsSnap.empty) {
+        for (const msgDoc of emailMsgsSnap.docs) {
+          await msgDoc.ref.delete().catch(() => {});
+        }
+      }
+    } catch (e) {
+      // Continue cleanup
     }
   }
 }

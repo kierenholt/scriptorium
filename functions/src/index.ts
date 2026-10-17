@@ -53,7 +53,7 @@ export const chat = onRequest(
         return;
       }
 
-      const { projectId, message, fileUri, fileMimeType } = req.body || {};
+      const { projectId, message, fileUri, fileMimeType, selectedEmailId } = req.body || {};
 
       // Fail-fast validation
       if (!projectId || typeof projectId !== 'string' || projectId.trim() === '') {
@@ -64,14 +64,18 @@ export const chat = onRequest(
         return;
       }
 
-      try {
-        assertValidEntityId(projectId.trim(), 'pr');
-      } catch (err: any) {
-        res.status(400).json({
-          error: 'INVALID_PROJECT_ID',
-          message: err.message,
-        });
-        return;
+      const isEmailContext = projectId.trim() === 'emails';
+
+      if (!isEmailContext) {
+        try {
+          assertValidEntityId(projectId.trim(), 'pr');
+        } catch (err: any) {
+          res.status(400).json({
+            error: 'INVALID_PROJECT_ID',
+            message: err.message,
+          });
+          return;
+        }
       }
 
       if (!message || typeof message !== 'string' || message.trim() === '') {
@@ -95,7 +99,7 @@ export const chat = onRequest(
       await logToFirestore(
         'info',
         `[chat] Incoming request for project "${projectId}"`,
-        { projectId, message, fileAttachment },
+        { projectId, message, fileAttachment, selectedEmailId },
         'chat'
       );
 
@@ -123,7 +127,8 @@ export const chat = onRequest(
               sendEvent('error', { message: err.message });
             },
           },
-          fileAttachment
+          fileAttachment,
+          selectedEmailId && typeof selectedEmailId === 'string' ? selectedEmailId.trim() : undefined
         );
 
         await logToFirestore('info', `[chat] Agent conversation completed for project "${projectId}"`, { projectId }, 'chat');

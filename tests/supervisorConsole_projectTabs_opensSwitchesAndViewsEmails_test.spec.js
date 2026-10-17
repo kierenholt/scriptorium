@@ -15,8 +15,8 @@ test.describe('Supervisor Console Workspace Tabs & Email Hub', () => {
     // 1. Seed default project to ensure an existing project record is in Firestore
     await seedTestProject(testConfig, 'pr-7k4x9q');
 
-    // 2. Navigate to root Supervisor SPA
-    await page.goto('/');
+    // 2. Navigate to root Supervisor SPA with seeded project
+    await page.goto('/?projectId=pr-7k4x9q');
 
     // 2. Verify TabBar rendered with pinned Emails tab and default project tab
     const tabBar = page.locator('[data-testid="workspace-tab-bar"]');
@@ -32,7 +32,7 @@ test.describe('Supervisor Console Workspace Tabs & Email Hub', () => {
     const inspectorPane = page.locator('[data-testid="project-inspector-pane"]');
     await expect(inspectorPane).toBeVisible({ timeout: 15000 });
 
-    const chatWindow = page.locator('[data-testid="chat-window"]');
+    const chatWindow = page.locator('[data-testid="chat-window"]:visible');
     await expect(chatWindow).toBeVisible();
 
     // 4. Click '+' button to open the Open / Create Project modal

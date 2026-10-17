@@ -19,6 +19,15 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // System chats (e.g. system_chats/emails/messages)
+    match /system_chats/{chatId} {
+      allow read, write: if true;
+
+      match /messages/{messageId} {
+        allow read, write: if true;
+      }
+    }
+
     // Function logs telemetry (read-only for clients/dashboards, admin writes only)
     match /function_logs/{document} {
       allow read: if true;

@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { serverConfig } from './config';
 import { allToolDeclarations } from './tools/declarations';
 import { dispatchToolCall, ToolExecutionResult } from './tools/executors';
-import { getProject, getRecentMessages, persistMessage } from './firestore';
+import { getProject, getRecentMessages, persistMessage, db } from './firestore';
 import { ToolCallExecution, FileAttachment } from './types';
 import { logToFirestore } from './logger';
 import { downloadBufferFromGcs } from './storage';
@@ -58,25 +58,89 @@ Operational Guidelines:
     - Invoke "lookupProjectArtifact" to inspect artifact details without generating a download URL.
     - Present the returned timeboxed download URL and markdown link clearly in your response.`;
 
+const EMAIL_SYSTEM_INSTRUCTION = `You are Scriptorium's Email & Communications Supervisor Agent.
+Scriptorium provides a managed talent-as-a-service platform for creative, localisation, and marketing teams, curating vetted talent pools across copywriters, transcreation specialists, AI post-editors, translators, and project managers.
+Your responsibility is to assist the supervisor in viewing and triaging incoming and unassigned candidate emails, matching incoming talent or inquiries to suitable projects, assigning emails to projects, drafting communications, and querying talent or project databases.
+
+Firestore Record ID Conventions (Strict Taxonomy: [a-z]{2}-[a-z0-9]{6}):
+All system entity identifiers strictly follow the 2-letter prefix + 6-alphanumeric character convention:
+- "pr-XXXXXX": Scriptorium Project documents (e.g. pr-7k4x9q)
+- "ms-XXXXXX": Chat messages in system_chats/emails/messages (e.g. ms-a8f3k2)
+- "em-XXXXXX": Email records in emails/{emailId} (e.g. em-v9d2m5)
+- "ar-XXXXXX": Deliverable and dossier artifacts in project.artifacts (e.g. ar-4k8x2q)
+- "tl-XXXXXX": Talent candidate CV profiles in datastore (e.g. tl-3n7w1z)
+
+Operational Guidelines for Email Supervisor:
+1. When asked to triage, inspect, or summarize incoming emails:
+   - If a specific email is currently selected in the viewer (see CURRENTLY SELECTED EMAIL IN VIEWER below), reference its content, sender, and subject directly.
+   - You can invoke "listUnassignedInboxEmails" to view unassigned candidate or client emails waiting in the inbox.
+   - You can invoke "readCandidateEmailMessage" to fetch details of any specific email by ID, sender, or subject query.
+2. When asked to match a candidate email to projects or suggest projects:
+   - Invoke "listRecentProjects" to see active projects and their requirements/tags.
+   - Invoke "getProjectsFromEmailSender" to check if this candidate/sender has interacted with previous projects.
+   - Invoke "lookupProjectRecord" to inspect candidate project briefs in detail.
+3. When asked to assign an email to a project:
+   - Invoke "assignEmailToProject" with the emailId and target projectId (e.g. "pr-xxxxxx"). Confirm the assignment once completed.
+4. When asked to dispatch or send an email:
+   - Invoke "sendCandidateEmailMessage" with target "to", "subject", "body", and optional target "projectId".
+5. When asked to search or index talent:
+   - Invoke "searchTalentPool" or "indexTalentCv".
+6. When tool execution results are returned:
+   - Explain clearly what was done and conclude with a concise message confirming the new state.`;
+
 export async function runAgentConversation(
   projectId: string,
   userPrompt: string,
   callbacks: StreamCallbacks,
-  fileAttachment?: FileAttachment
+  fileAttachment?: FileAttachment,
+  selectedEmailId?: string
 ): Promise<{ finalResponse: string; toolExecutions: ToolCallExecution[] }> {
   // Fail fast check
   if (!projectId || projectId.trim() === '') {
     throw new Error('[FAIL FAST] projectId cannot be empty in runAgentConversation.');
   }
-  assertValidEntityId(projectId.trim(), 'pr');
+
+  const isEmailContext = projectId.trim() === 'emails';
+
+  if (!isEmailContext) {
+    assertValidEntityId(projectId.trim(), 'pr');
+  }
+
   if (!userPrompt || userPrompt.trim() === '') {
     throw new Error('[FAIL FAST] userPrompt cannot be empty in runAgentConversation.');
   }
 
-  // Verify project exists
-  const currentProject = await getProject(projectId);
-  if (!currentProject) {
-    throw new Error(`[FAIL FAST] Project with ID "${projectId}" does not exist in Firestore.`);
+  // Verify project exists if in project context
+  let currentProject: any = null;
+  if (!isEmailContext) {
+    currentProject = await getProject(projectId);
+    if (!currentProject) {
+      throw new Error(`[FAIL FAST] Project with ID "${projectId}" does not exist in Firestore.`);
+    }
+  }
+
+  // If in email context and selectedEmailId is provided, load its full details
+  let selectedEmailData: any = null;
+  if (isEmailContext && selectedEmailId && typeof selectedEmailId === 'string' && selectedEmailId.trim() !== '') {
+    const trimmedId = selectedEmailId.trim();
+    try {
+      const emailSnap = await db.collection('emails').doc(trimmedId).get();
+      if (emailSnap.exists) {
+        selectedEmailData = emailSnap.data();
+      } else {
+        const querySnap = await db.collection('emails').where('emailId', '==', trimmedId).limit(1).get();
+        if (!querySnap.empty) {
+          selectedEmailData = querySnap.docs[0].data();
+        } else {
+          const resendSnap = await db.collection('emails').where('resendId', '==', trimmedId).limit(1).get();
+          if (!resendSnap.empty) {
+            selectedEmailData = resendSnap.docs[0].data();
+          }
+        }
+      }
+    } catch (e: any) {
+      await logToFirestore('warn', `[agent] Failed to load selected email "${trimmedId}": ${e?.message}`, {}, 'agent');
+    }
   }
 
   const ai = new GoogleGenAI({ apiKey: serverConfig.geminiApiKey });
@@ -136,6 +200,30 @@ export async function runAgentConversation(
   let finalResponseText = '';
   let maxTurns = 5;
 
+  let fullSystemInstruction = '';
+  if (isEmailContext) {
+    const selectedEmailContext = selectedEmailData
+      ? `CURRENTLY SELECTED EMAIL IN VIEWER:\n${JSON.stringify(
+          {
+            id: selectedEmailData.id || selectedEmailId,
+            resendId: selectedEmailData.resendId,
+            from: selectedEmailData.from,
+            to: selectedEmailData.to,
+            subject: selectedEmailData.subject,
+            direction: selectedEmailData.direction,
+            projectId: selectedEmailData.projectId || null,
+            receivedAt: selectedEmailData.sentAt || selectedEmailData.createdAt || selectedEmailData.timestamp,
+            body: selectedEmailData.body || selectedEmailData.content || '',
+          },
+          null,
+          2
+        )}`
+      : 'CURRENTLY SELECTED EMAIL IN VIEWER: None selected.';
+    fullSystemInstruction = `${EMAIL_SYSTEM_INSTRUCTION}\n\n${selectedEmailContext}`;
+  } else {
+    fullSystemInstruction = `${SYSTEM_INSTRUCTION}\n\nCURRENT PROJECT STATE:\n${JSON.stringify(currentProject, null, 2)}`;
+  }
+
   while (maxTurns > 0) {
     maxTurns--;
 
@@ -143,7 +231,7 @@ export async function runAgentConversation(
       model: serverConfig.modelName,
       contents,
       config: {
-        systemInstruction: `${SYSTEM_INSTRUCTION}\n\nCURRENT PROJECT STATE:\n${JSON.stringify(currentProject, null, 2)}`,
+        systemInstruction: fullSystemInstruction,
         tools: [{ functionDeclarations: allToolDeclarations }],
       },
     });

@@ -25,11 +25,23 @@ export async function executeShortlistCandidate(
   projectId: string,
   args: ShortlistCandidateArgs
 ): Promise<ToolExecutionResult> {
-  if (!projectId || typeof projectId !== 'string' || projectId.trim() === '') {
+  const targetProjectId = (args.projectId || (projectId !== 'emails' ? projectId : undefined))?.trim();
+
+  if (!targetProjectId) {
     return {
       success: false,
       error: 'Missing required projectId.',
-      message: 'Failed to shortlist talent: projectId is required.',
+      message: 'Failed to shortlist talent: target project ID (e.g. pr-xxxxxx) is required.',
+    };
+  }
+
+  try {
+    assertValidEntityId(targetProjectId, 'pr');
+  } catch (err: any) {
+    return {
+      success: false,
+      error: 'INVALID_PROJECT_ID',
+      message: err.message,
     };
   }
 
@@ -59,13 +71,13 @@ export async function executeShortlistCandidate(
   }
 
   // Check project existence
-  const projectRef = db.collection('projects').doc(projectId.trim());
+  const projectRef = db.collection('projects').doc(targetProjectId);
   const projectSnap = await projectRef.get();
   if (!projectSnap.exists) {
     return {
       success: false,
-      error: `Project "${projectId}" not found.`,
-      message: `Cannot shortlist talent: project "${projectId}" does not exist in Firestore.`,
+      error: `Project "${targetProjectId}" not found.`,
+      message: `Cannot shortlist talent: project "${targetProjectId}" does not exist in Firestore.`,
     };
   }
 
@@ -92,7 +104,7 @@ export async function executeShortlistCandidate(
 
   return {
     success: true,
-    message: `Candidate "${record.name}" (${record.role}) successfully shortlisted for project "${projectId}" with status "${record.status}". Shortlist ID: ${shortlistId}.`,
+    message: `Candidate "${record.name}" (${record.role}) successfully shortlisted for project "${targetProjectId}" with status "${record.status}". Shortlist ID: ${shortlistId}.`,
     data: record as unknown as Record<string, unknown>,
   };
 }
@@ -105,21 +117,33 @@ export async function executeListShortlistedTalents(
   projectId: string,
   args: ListShortlistedTalentsArgs = {}
 ): Promise<ToolExecutionResult> {
-  if (!projectId || typeof projectId !== 'string' || projectId.trim() === '') {
+  const targetProjectId = (args.projectId || (projectId !== 'emails' ? projectId : undefined))?.trim();
+
+  if (!targetProjectId) {
     return {
       success: false,
       error: 'Missing required projectId.',
-      message: 'Failed to list shortlisted talent: projectId is required.',
+      message: 'Failed to list shortlisted talent: target project ID (e.g. pr-xxxxxx) is required.',
     };
   }
 
-  const projectRef = db.collection('projects').doc(projectId.trim());
+  try {
+    assertValidEntityId(targetProjectId, 'pr');
+  } catch (err: any) {
+    return {
+      success: false,
+      error: 'INVALID_PROJECT_ID',
+      message: err.message,
+    };
+  }
+
+  const projectRef = db.collection('projects').doc(targetProjectId);
   const projectSnap = await projectRef.get();
   if (!projectSnap.exists) {
     return {
       success: false,
-      error: `Project "${projectId}" not found.`,
-      message: `Cannot list shortlisted talent: project "${projectId}" does not exist.`,
+      error: `Project "${targetProjectId}" not found.`,
+      message: `Cannot list shortlisted talent: project "${targetProjectId}" does not exist.`,
     };
   }
 

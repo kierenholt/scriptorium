@@ -72,7 +72,10 @@ export function subscribeToMessages(
     throw new Error('[FAIL FAST] Mandatory projectId missing in subscribeToMessages.');
   }
 
-  const messagesRef = collection(db, 'projects', projectId, 'messages');
+  const messagesRef =
+    projectId === 'emails'
+      ? collection(db, 'system_chats', 'emails', 'messages')
+      : collection(db, 'projects', projectId, 'messages');
   const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
   return onSnapshot(
@@ -98,7 +101,10 @@ export async function fetchProjectMessages(projectId: string): Promise<ChatMessa
     throw new Error('[FAIL FAST] Mandatory projectId missing in fetchProjectMessages.');
   }
 
-  const messagesRef = collection(db, 'projects', projectId, 'messages');
+  const messagesRef =
+    projectId === 'emails'
+      ? collection(db, 'system_chats', 'emails', 'messages')
+      : collection(db, 'projects', projectId, 'messages');
   const q = query(messagesRef, orderBy('timestamp', 'asc'));
   const snapshot = await getDocs(q);
 

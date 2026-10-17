@@ -24,6 +24,8 @@ interface EmailHubProps {
   onDeleteEmail?: (emailId: string) => Promise<void>;
   onSwitchToProject: (projectId: string) => void;
   projectTitles?: Record<string, string>;
+  selectedEmailId?: string | null;
+  onSelectEmail?: (emailId: string | null) => void;
 }
 
 export const EmailHub: React.FC<EmailHubProps> = ({
@@ -35,10 +37,13 @@ export const EmailHub: React.FC<EmailHubProps> = ({
   onDeleteEmail,
   onSwitchToProject,
   projectTitles = {},
+  selectedEmailId: propSelectedEmailId,
+  onSelectEmail,
 }) => {
   const [filter, setFilter] = useState<'inbox' | 'unassigned' | 'assigned'>('unassigned');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const [internalSelectedEmailId, setInternalSelectedEmailId] = useState<string | null>(null);
+  const selectedEmailId = propSelectedEmailId !== undefined ? propSelectedEmailId : internalSelectedEmailId;
   const [manualProjectId, setManualProjectId] = useState('');
   const [manualError, setManualError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -64,8 +69,19 @@ export const EmailHub: React.FC<EmailHubProps> = ({
 
   const selectedEmail = emails.find((e) => e.id === selectedEmailId) || filteredEmails[0] || null;
 
+  // Sync selected email back if prop handler is provided
+  React.useEffect(() => {
+    if (selectedEmail && selectedEmail.id !== propSelectedEmailId && propSelectedEmailId !== undefined) {
+      onSelectEmail?.(selectedEmail.id);
+    }
+  }, [selectedEmail, propSelectedEmailId, onSelectEmail]);
+
   const handleSelectEmail = (emailId: string) => {
-    setSelectedEmailId(emailId);
+    if (propSelectedEmailId !== undefined) {
+      onSelectEmail?.(emailId);
+    } else {
+      setInternalSelectedEmailId(emailId);
+    }
     setConfirmingDelete(false);
   };
 
@@ -85,7 +101,11 @@ export const EmailHub: React.FC<EmailHubProps> = ({
 
       await onDeleteEmail(targetId);
 
-      setSelectedEmailId(nextEmail ? nextEmail.id : null);
+      if (propSelectedEmailId !== undefined) {
+        onSelectEmail?.(nextEmail ? nextEmail.id : null);
+      } else {
+        setInternalSelectedEmailId(nextEmail ? nextEmail.id : null);
+      }
       setConfirmingDelete(false);
       setFeedbackMessage(`Email "${targetSubject || targetId}" successfully deleted.`);
       setTimeout(() => setFeedbackMessage(null), 4000);
@@ -195,6 +215,7 @@ export const EmailHub: React.FC<EmailHubProps> = ({
                   key={email.id}
                   onClick={() => handleSelectEmail(email.id)}
                   data-testid="email-hub-card"
+                  data-email-id={email.id}
                   className={`p-3 rounded-lg border cursor-pointer transition-all ${
                     isSelected
                       ? 'bg-[#21262d] border-blue-500/60 shadow-md'

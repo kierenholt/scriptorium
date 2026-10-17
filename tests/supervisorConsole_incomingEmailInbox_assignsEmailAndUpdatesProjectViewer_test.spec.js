@@ -133,8 +133,8 @@ test.describe('Supervisor Console Incoming Email Inbox & Assignment Tests', () =
 
 
     // 12. Ask the supervisor agent in the chat console to look up projects for this sender or check project emails
-    const chatInput = page.locator('[data-testid="chat-input"]');
-    const sendBtn = page.locator('[data-testid="chat-send-btn"]');
+    const chatInput = page.locator('[data-testid="chat-input"]:visible');
+    const sendBtn = page.locator('[data-testid="chat-send-btn"]:visible');
     await expect(chatInput).toBeVisible();
 
     const prompt = `Which projects are associated with sender "${fromEmail}"?`;
@@ -150,7 +150,7 @@ test.describe('Supervisor Console Incoming Email Inbox & Assignment Tests', () =
 
     // 14. Verify agent answers with the project ID
     await expect(chatInput).toBeEnabled({ timeout: 45000 });
-    const chatWindow = page.locator('[data-testid="chat-window"]');
+    const chatWindow = page.locator('[data-testid="chat-window"]:visible');
     await expect(chatWindow).toContainText(testProjectId);
   });
 });

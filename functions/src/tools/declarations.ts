@@ -405,6 +405,10 @@ export const shortlistCandidateForProjectDeclaration: FunctionDeclaration = {
         type: Type.STRING,
         description: 'Agreed or indicated daily or hourly compensation rate for the candidate.',
       },
+      projectId: {
+        type: Type.STRING,
+        description: 'Optional target project ID strictly adhering to pr-xxxxxx format (defaults to the currently active project).',
+      },
     },
     required: ['name', 'role'],
   },
@@ -425,6 +429,10 @@ export const listShortlistedTalentsForProjectDeclaration: FunctionDeclaration = 
       limit: {
         type: Type.INTEGER,
         description: 'Maximum number of shortlisted candidate entries to retrieve (default: 20, max: 100).',
+      },
+      projectId: {
+        type: Type.STRING,
+        description: 'Optional target project ID strictly adhering to pr-xxxxxx format (defaults to the currently active project).',
       },
     },
   },

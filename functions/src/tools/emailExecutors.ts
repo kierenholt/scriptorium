@@ -443,6 +443,8 @@ export async function executeSendCandidateEmailMessage(
     const resendId = resData.id;
     const sentAt = new Date().toISOString();
 
+    const targetProjectId = (args.projectId || (projectId !== 'emails' ? projectId : undefined))?.trim();
+
     // Save record to Firestore emails collection
     await db.collection('emails').doc(emailId).set({
       id: emailId,
@@ -455,7 +457,7 @@ export async function executeSendCandidateEmailMessage(
       type: 'agent-dispatch',
       direction: 'outbound',
       sentAt,
-      projectId,
+      projectId: targetProjectId || null,
     });
 
     const projectEmail: ProjectEmail = {
@@ -470,10 +472,11 @@ export async function executeSendCandidateEmailMessage(
       assignedAt: sentAt,
     };
 
-    // Automatically associate and record outbound email directly into active project document
-    if (projectId) {
+    // Automatically associate and record outbound email directly into active project document if targetProjectId provided
+    if (targetProjectId) {
       try {
-        await db.collection('projects').doc(projectId).set(
+        assertValidEntityId(targetProjectId, 'pr');
+        await db.collection('projects').doc(targetProjectId).set(
           {
             emails: FieldValue.arrayUnion(projectEmail),
             updatedAt: sentAt,
@@ -481,7 +484,7 @@ export async function executeSendCandidateEmailMessage(
           { merge: true }
         );
       } catch (projErr: any) {
-        console.warn(`[sendCandidateEmailMessage] Failed to append email to project ${projectId}:`, projErr?.message);
+        console.warn(`[sendCandidateEmailMessage] Failed to append email to project ${targetProjectId}:`, projErr?.message);
       }
     }
 
@@ -613,7 +616,7 @@ export async function executeAssignEmailToProject(
   args: AssignEmailToProjectArgs
 ): Promise<ToolExecutionResult> {
   const emailId = args.emailId?.trim();
-  const targetProjectId = (args.projectId || projectId)?.trim();
+  const targetProjectId = (args.projectId || (projectId !== 'emails' ? projectId : undefined))?.trim();
 
   if (!emailId) {
     return {
@@ -939,7 +942,7 @@ export async function executeDeleteCandidateEmailMessage(
       }
     }
 
-    let targetProjectId = (emailDoc.exists ? emailDoc.data()?.projectId : null) || (projectId ? projectId.trim() : null);
+    let targetProjectId = (emailDoc.exists ? emailDoc.data()?.projectId : null) || (projectId && projectId !== 'emails' ? projectId.trim() : null);
     let resendId = emailDoc.exists
       ? (emailDoc.data()?.resendId || (!emailDoc.id.startsWith('em-') ? emailDoc.id : undefined))
       : (!emailId.startsWith('em-') ? emailId : undefined);

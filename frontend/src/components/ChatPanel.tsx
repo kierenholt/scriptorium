@@ -15,9 +15,16 @@ interface StagedFile {
 interface ChatPanelProps {
   projectId?: string;
   persistedMessages: ChatMessage[];
+  selectedEmailId?: string;
+  title?: string;
 }
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({ projectId, persistedMessages }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({
+  projectId,
+  persistedMessages,
+  selectedEmailId,
+  title,
+}) => {
   const activeProjectId = projectId || config.projectId;
   const [messages, setMessages] = useState<ChatMessage[]>(persistedMessages);
   const [inputText, setInputText] = useState('');
@@ -167,14 +174,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ projectId, persistedMessag
           setErrorText(err.message);
         },
       },
-      fileAttachment
-    );
+        fileAttachment,
+        selectedEmailId
+      );
     } catch (err: any) {
       setIsStreaming(false);
       setStatusMessage(null);
       setErrorText(err?.message || 'Failed to communicate with agent');
     }
   };
+
+  const isEmailAgent = activeProjectId === 'emails';
+  const panelTitle = title || (isEmailAgent ? 'Email Triage Agent' : 'Supervisor Agent');
 
   return (
     <div
@@ -185,8 +196,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ projectId, persistedMessag
       <div className="h-10 border-b border-[#30363d] px-4 flex items-center justify-between bg-[#161b22] select-none">
         <div className="flex items-center space-x-2">
           <Sparkles className="w-4 h-4 text-purple-400" />
-          <span className="text-xs font-semibold text-gray-300 tracking-wide uppercase">
-            Supervisor Agent
+          <span
+            data-testid="chat-panel-title"
+            className="text-xs font-semibold text-gray-300 tracking-wide uppercase"
+          >
+            {panelTitle}
           </span>
         </div>
       </div>
@@ -196,23 +210,46 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ projectId, persistedMessag
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500 space-y-2 select-none">
             <Bot className="w-10 h-10 text-gray-600 mb-1" />
-            <p className="text-sm font-medium text-gray-400">Supervisor Console Ready</p>
+            <p className="text-sm font-medium text-gray-400">
+              {isEmailAgent ? 'Email Triage Agent Ready' : 'Supervisor Console Ready'}
+            </p>
             <p className="text-xs text-gray-500 max-w-xs">
-              Command the agent to mutate the project record. For example:
+              {isEmailAgent
+                ? 'Command the agent to triage emails, inspect candidate inquiries, or match projects. For example:'
+                : 'Command the agent to mutate the project record. For example:'}
             </p>
             <div className="space-y-1.5 text-xs text-blue-400 text-left w-full mt-2">
-              <button
-                onClick={() => setInputText('Change status to completed and add tag "reviewed"')}
-                className="w-full text-left p-2 rounded bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] transition-colors"
-              >
-                &quot;Change status to completed and add tag &apos;reviewed&apos;&quot;
-              </button>
-              <button
-                onClick={() => setInputText('Rename project to "Scriptorium Core Pipeline"')}
-                className="w-full text-left p-2 rounded bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] transition-colors"
-              >
-                &quot;Rename project to &apos;Scriptorium Core Pipeline&apos;&quot;
-              </button>
+              {isEmailAgent ? (
+                <>
+                  <button
+                    onClick={() => setInputText('List all unassigned emails in inbox')}
+                    className="w-full text-left p-2 rounded bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] transition-colors"
+                  >
+                    &quot;List all unassigned emails in inbox&quot;
+                  </button>
+                  <button
+                    onClick={() => setInputText('Triage the currently selected email and suggest matching projects')}
+                    className="w-full text-left p-2 rounded bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] transition-colors"
+                  >
+                    &quot;Triage the currently selected email and suggest matching projects&quot;
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setInputText('Change status to completed and add tag "reviewed"')}
+                    className="w-full text-left p-2 rounded bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] transition-colors"
+                  >
+                    &quot;Change status to completed and add tag &apos;reviewed&apos;&quot;
+                  </button>
+                  <button
+                    onClick={() => setInputText('Rename project to "Scriptorium Core Pipeline"')}
+                    className="w-full text-left p-2 rounded bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] transition-colors"
+                  >
+                    &quot;Rename project to &apos;Scriptorium Core Pipeline&apos;&quot;
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ) : (

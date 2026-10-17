@@ -58,15 +58,29 @@ export async function seedDefaultProject(projectId: string = serverConfig.defaul
 }
 
 /**
- * Persist a message to the project's messages subcollection.
+ * Persist a message to the project's messages subcollection or system_chats/emails/messages.
  */
 export async function persistMessage(projectId: string, message: ChatMessageRecord): Promise<void> {
   if (!projectId) {
     throw new Error('[FAIL FAST] Mandatory parameter "projectId" is missing from persistMessage.');
   }
 
-  assertValidEntityId(projectId, 'pr');
   assertValidEntityId(message.id, 'ms');
+
+  if (projectId === 'emails') {
+    await db
+      .collection('system_chats')
+      .doc('emails')
+      .collection('messages')
+      .doc(message.id)
+      .set({
+        ...message,
+        createdAtServer: FieldValue.serverTimestamp(),
+      });
+    return;
+  }
+
+  assertValidEntityId(projectId, 'pr');
 
   await db
     .collection('projects')
@@ -87,6 +101,18 @@ export async function getRecentMessages(projectId: string, limitCount: number = 
     throw new Error('[FAIL FAST] Mandatory parameter "projectId" is missing from getRecentMessages.');
   }
 
+  if (projectId === 'emails') {
+    const snapshot = await db
+      .collection('system_chats')
+      .doc('emails')
+      .collection('messages')
+      .orderBy('timestamp', 'asc')
+      .limitToLast(limitCount)
+      .get();
+
+    return snapshot.docs.map((doc) => doc.data() as ChatMessageRecord);
+  }
+
   assertValidEntityId(projectId, 'pr');
 
   const snapshot = await db
@@ -99,3 +125,4 @@ export async function getRecentMessages(projectId: string, limitCount: number = 
 
   return snapshot.docs.map((doc) => doc.data() as ChatMessageRecord);
 }
+

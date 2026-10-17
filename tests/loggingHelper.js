@@ -26,8 +26,14 @@ const test = base.extend({
 
     const supervisorToken = process.env.VITE_SUPERVISOR_ACCESS_TOKEN || 'a1e839a5143ce7f6b744ce6f4eed57bf';
     await context.addInitScript((token) => {
-      if (!window.__DISABLE_TEST_SUPERVISOR_AUTH__) {
-        sessionStorage.setItem('scriptorium_supervisor_token', token);
+      try {
+        if (!window.__DISABLE_TEST_SUPERVISOR_AUTH__) {
+          window.sessionStorage.setItem('scriptorium_supervisor_token', token);
+        }
+        window.localStorage.removeItem('scriptorium_open_tabs');
+        window.localStorage.removeItem('scriptorium_active_tab');
+      } catch (e) {
+        // Ignore SecurityError on about:blank or uninitialized documents
       }
     }, supervisorToken);
 
