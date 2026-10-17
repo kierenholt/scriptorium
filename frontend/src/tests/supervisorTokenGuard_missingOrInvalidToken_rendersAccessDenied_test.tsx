@@ -12,6 +12,8 @@ vi.mock('../services/firebase', () => ({
   listenToProjectDocument: vi.fn(() => () => {}),
   subscribeToProject: vi.fn(() => () => {}),
   subscribeToMessages: vi.fn(() => () => {}),
+  subscribeToShortlistedTalents: vi.fn(() => () => {}),
+  fetchProjectShortlistedTalents: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../services/api', () => ({

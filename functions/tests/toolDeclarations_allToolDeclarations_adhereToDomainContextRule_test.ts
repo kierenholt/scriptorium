@@ -14,11 +14,22 @@ import { dispatchToolCall } from '../src/tools/executors';
 // Mock db for dispatch tests
 vi.mock('../src/firestore', () => {
   const updateMock = vi.fn().mockResolvedValue({});
+  const setMock = vi.fn().mockResolvedValue({});
+  const deleteMock = vi.fn().mockResolvedValue({});
+  const docRef = {
+    delete: deleteMock,
+    set: setMock,
+    update: updateMock,
+  };
   const getMock = vi.fn().mockResolvedValue({
     exists: true,
+    id: 'em-a1b2c3',
+    ref: docRef,
     data: () => ({
       id: 'pr-7k4x9q',
       title: 'Sample Project',
+      subject: 'Sample Subject',
+      emails: [],
       artifacts: [
         {
           id: 'ar-8m2p9k',
@@ -32,7 +43,40 @@ vi.mock('../src/firestore', () => {
       ],
     }),
   });
-  const docMock = vi.fn(() => ({ update: updateMock, get: getMock }));
+  const subDocMock = vi.fn(() => ({
+    set: setMock,
+    update: updateMock,
+    get: vi.fn().mockResolvedValue({
+      exists: true,
+      data: () => ({
+        id: 'sl-123456',
+        name: 'Alice',
+        role: 'Copywriter',
+        status: 'shortlisted',
+      }),
+    }),
+    delete: deleteMock,
+  }));
+  const subCollectionMock = vi.fn(() => ({
+    doc: subDocMock,
+    where: vi.fn(() => ({
+      limit: vi.fn(() => ({
+        get: vi.fn().mockResolvedValue({ docs: [], forEach: vi.fn() }),
+      })),
+    })),
+    limit: vi.fn(() => ({
+      get: vi.fn().mockResolvedValue({ docs: [], forEach: vi.fn() }),
+    })),
+    get: vi.fn().mockResolvedValue({ docs: [], forEach: vi.fn() }),
+  }));
+
+  const docMock = vi.fn(() => ({
+    update: updateMock,
+    set: setMock,
+    delete: deleteMock,
+    get: getMock,
+    collection: subCollectionMock,
+  }));
   const collectionMock = vi.fn(() => ({
     doc: docMock,
     orderBy: vi.fn(() => ({
@@ -102,6 +146,11 @@ describe('toolDeclarations_allToolDeclarations_adhereToDomainContextRule_test', 
     'getProjectsFromEmailSender',
     'assignEmailToProject',
     'listUnassignedInboxEmails',
+    'deleteCandidateEmailMessage',
+    'shortlistCandidateForProject',
+    'listShortlistedTalentsForProject',
+    'updateShortlistedTalentStatus',
+    'removeShortlistedTalentFromProject',
   ];
 
   const FORBIDDEN_GENERIC_NAMES = [
@@ -271,6 +320,49 @@ describe('toolDeclarations_allToolDeclarations_adhereToDomainContextRule_test', 
     });
     expect(lookupArtResult.success).toBe(true);
     expect(lookupArtResult.data).toHaveProperty('artifact');
+
+    // 17. Test shortlistCandidateForProject
+    const shortlistResult = await dispatchToolCall('pr-7k4x9q', 'shortlistCandidateForProject', {
+      name: 'Elena Rostova',
+      role: 'Senior Transcreation Specialist',
+      status: 'shortlisted',
+      dayRate: '£450',
+    });
+    expect(shortlistResult.success).toBe(true);
+    expect(shortlistResult.data).toHaveProperty('id');
+
+    // 18. Test listShortlistedTalentsForProject
+    const listShortlistResult = await dispatchToolCall('pr-7k4x9q', 'listShortlistedTalentsForProject', {
+      status: 'shortlisted',
+    });
+    expect(listShortlistResult.success).toBe(true);
+    expect(listShortlistResult.data).toHaveProperty('shortlistedTalents');
+
+    // 19. Test updateShortlistedTalentStatus
+    const updateShortlistResult = await dispatchToolCall('pr-7k4x9q', 'updateShortlistedTalentStatus', {
+      shortlistId: 'sl-123456',
+      status: 'booked',
+    });
+    expect(updateShortlistResult.success).toBe(true);
+
+    // 20. Test removeShortlistedTalentFromProject
+    const removeShortlistResult = await dispatchToolCall('pr-7k4x9q', 'removeShortlistedTalentFromProject', {
+      shortlistId: 'sl-123456',
+    });
+    expect(removeShortlistResult.success).toBe(true);
+
+    // 21. Test deleteCandidateEmailMessage
+    const deleteEmailResult = await dispatchToolCall('pr-7k4x9q', 'deleteCandidateEmailMessage', {
+      emailId: 'em-a1b2c3',
+    });
+    expect(deleteEmailResult.success).toBe(true);
+    expect(deleteEmailResult.data).toHaveProperty('emailId');
+
+    // 22. Test deleteEmail alias
+    const deleteAliasResult = await dispatchToolCall('pr-7k4x9q', 'deleteEmail', {
+      emailId: 'em-a1b2c3',
+    });
+    expect(deleteAliasResult.success).toBe(true);
   });
 });
 

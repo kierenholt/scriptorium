@@ -12,7 +12,7 @@ import {
   Unsubscribe,
 } from 'firebase/firestore';
 import { config } from '../config';
-import { ProjectDocument, ChatMessage, ProjectEmail } from '../types';
+import { ProjectDocument, ChatMessage, ProjectEmail, ShortlistedTalent } from '../types';
 
 // Initialize Firebase client
 const app = getApps().length === 0 ? initializeApp(config.firebase) : getApp();
@@ -107,6 +107,55 @@ export async function fetchProjectMessages(projectId: string): Promise<ChatMessa
     messages.push(d.data() as ChatMessage);
   });
   return messages;
+}
+
+/**
+ * Real-time subscription to the project shortlisted talents subcollection.
+ */
+export function subscribeToShortlistedTalents(
+  projectId: string,
+  onUpdate: (talents: ShortlistedTalent[]) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  if (!projectId) {
+    throw new Error('[FAIL FAST] Mandatory projectId missing in subscribeToShortlistedTalents.');
+  }
+
+  const shortlistRef = collection(db, 'projects', projectId, 'shortlistedTalents');
+
+  return onSnapshot(
+    shortlistRef,
+    (snapshot) => {
+      const talents: ShortlistedTalent[] = [];
+      snapshot.forEach((d) => {
+        talents.push(d.data() as ShortlistedTalent);
+      });
+      talents.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      onUpdate(talents);
+    },
+    (err) => {
+      onError(err);
+    }
+  );
+}
+
+/**
+ * One-off fetch of shortlisted talents subcollection documents for a project.
+ */
+export async function fetchProjectShortlistedTalents(projectId: string): Promise<ShortlistedTalent[]> {
+  if (!projectId) {
+    throw new Error('[FAIL FAST] Mandatory projectId missing in fetchProjectShortlistedTalents.');
+  }
+
+  const shortlistRef = collection(db, 'projects', projectId, 'shortlistedTalents');
+  const snapshot = await getDocs(shortlistRef);
+
+  const talents: ShortlistedTalent[] = [];
+  snapshot.forEach((d) => {
+    talents.push(d.data() as ShortlistedTalent);
+  });
+  talents.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  return talents;
 }
 
 /**

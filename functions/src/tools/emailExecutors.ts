@@ -9,6 +9,7 @@ import {
   GetProjectsFromEmailSenderArgs,
   AssignEmailToProjectArgs,
   ListUnassignedInboxEmailsArgs,
+  DeleteEmailArgs,
 } from './types';
 
 /**
@@ -894,6 +895,118 @@ export async function executeListUnassignedInboxEmails(
   }
 }
 
+/**
+ * Execute deleteCandidateEmailMessage tool.
+ * Permanently deletes an email record from Firestore 'emails' collection,
+ * removes it from any associated project document's emails array,
+ * and attempts deletion via Resend API if applicable.
+ */
+export async function executeDeleteCandidateEmailMessage(
+  projectId: string,
+  args: DeleteEmailArgs
+): Promise<ToolExecutionResult> {
+  const emailId = args.emailId?.trim();
+
+  if (!emailId) {
+    return {
+      success: false,
+      error: 'MISSING_EMAIL_ID',
+      message: '[FAIL FAST] Mandatory parameter "emailId" is missing from deleteCandidateEmailMessage.',
+    };
+  }
+
+  try {
+    // 1. Locate email in Firestore emails collection
+    let emailDoc = await db.collection('emails').doc(emailId).get();
+
+    if (!emailDoc.exists) {
+      const querySnap = await db.collection('emails').where('emailId', '==', emailId).limit(1).get();
+      if (!querySnap.empty) {
+        emailDoc = querySnap.docs[0];
+      } else {
+        const resendSnap = await db.collection('emails').where('resendId', '==', emailId).limit(1).get();
+        if (!resendSnap.empty) {
+          emailDoc = resendSnap.docs[0];
+        }
+      }
+    }
+
+    let targetProjectId = (emailDoc.exists ? emailDoc.data()?.projectId : null) || (projectId ? projectId.trim() : null);
+    let resendId = emailDoc.exists
+      ? (emailDoc.data()?.resendId || (!emailDoc.id.startsWith('em-') ? emailDoc.id : undefined))
+      : (!emailId.startsWith('em-') ? emailId : undefined);
+    const emailSubject = emailDoc.exists ? emailDoc.data()?.subject : undefined;
+
+    // 2. If associated with a project, remove from project document's emails array
+    if (targetProjectId) {
+      try {
+        const projectRef = db.collection('projects').doc(targetProjectId);
+        const projectDoc = await projectRef.get();
+        if (projectDoc.exists) {
+          const projectData = projectDoc.data();
+          const existingEmails: any[] = Array.isArray(projectData?.emails) ? projectData.emails : [];
+          const updatedEmails = existingEmails.filter(
+            (e) => e.id !== emailId && e.id !== emailDoc.id && (!resendId || e.resendId !== resendId)
+          );
+          if (updatedEmails.length !== existingEmails.length) {
+            await projectRef.set(
+              {
+                emails: updatedEmails,
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true }
+            );
+          }
+        }
+      } catch (projErr: any) {
+        console.warn(`[executeDeleteEmail] Failed to clean up project email array:`, projErr?.message);
+      }
+    }
+
+    // 3. If email has a resendId or is a Resend ID, attempt deletion via Resend API
+    const apiKey = process.env.RESEND_API_KEY;
+    if (apiKey && resendId) {
+      try {
+        const recRes = await fetch(`https://api.resend.com/emails/receiving/${resendId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
+        });
+        if (!recRes.ok) {
+          await fetch(`https://api.resend.com/emails/${resendId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': 'scriptorium/1.0' },
+          });
+        }
+      } catch (resendErr: any) {
+        console.warn(`[executeDeleteEmail] Resend API deletion attempt failed:`, resendErr?.message);
+      }
+    }
+
+    // 4. Delete the email document from Firestore emails collection
+    if (emailDoc.exists) {
+      await emailDoc.ref.delete();
+    } else {
+      await db.collection('emails').doc(emailId).delete();
+    }
+
+    return {
+      success: true,
+      message: `Email "${emailSubject || emailId}" (${emailDoc.exists ? emailDoc.id : emailId}) was permanently deleted from the repository.`,
+      data: {
+        emailId: emailDoc.exists ? emailDoc.id : emailId,
+        subject: emailSubject,
+        projectId: targetProjectId,
+      },
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: 'DELETE_EMAIL_FAILED',
+      message: `Failed to delete email "${emailId}": ${err?.message}`,
+    };
+  }
+}
+
 // Domain-named function aliases
 export const executeReadEmail = executeReadCandidateEmailMessage;
 export const checkReceivedEmail = executeReadCandidateEmailMessage;
@@ -906,3 +1019,6 @@ export const moveEmailToProject = executeAssignEmailToProject;
 export const associateEmailWithProject = executeAssignEmailToProject;
 export const listUnassignedInboxEmails = executeListUnassignedInboxEmails;
 export const listInboxEmails = executeListUnassignedInboxEmails;
+export const executeDeleteEmail = executeDeleteCandidateEmailMessage;
+export const deleteCandidateEmailMessage = executeDeleteCandidateEmailMessage;
+export const deleteEmail = executeDeleteCandidateEmailMessage;

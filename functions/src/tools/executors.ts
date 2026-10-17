@@ -16,6 +16,11 @@ import {
   GetProjectsFromEmailSenderArgs,
   AssignEmailToProjectArgs,
   ListUnassignedInboxEmailsArgs,
+  DeleteEmailArgs,
+  ShortlistCandidateArgs,
+  ListShortlistedTalentsArgs,
+  UpdateShortlistedTalentStatusArgs,
+  RemoveShortlistedTalentArgs,
 } from './types';
 import {
   executeUpdateStatus,
@@ -39,13 +44,21 @@ import {
   executeGetProjectsFromEmailSender,
   executeAssignEmailToProject,
   executeListUnassignedInboxEmails,
+  executeDeleteCandidateEmailMessage,
 } from './emailExecutors';
+import {
+  executeShortlistCandidate,
+  executeListShortlistedTalents,
+  executeUpdateShortlistedTalentStatus,
+  executeRemoveShortlistedTalent,
+} from './shortlistExecutors';
 
 // Re-export all types and domain executors for seamless backwards compatibility
 export * from './types';
 export * from './projectExecutors';
 export * from './talentExecutors';
 export * from './emailExecutors';
+export * from './shortlistExecutors';
 
 /**
  * Tool dispatcher mapping domain-specific function names to executors.
@@ -129,6 +142,30 @@ export async function dispatchToolCall(
     case 'listUnassignedInboxEmails':
     case 'listInboxEmails':
       return executeListUnassignedInboxEmails(projectId, args as ListUnassignedInboxEmailsArgs);
+
+    case 'deleteCandidateEmailMessage':
+    case 'deleteEmail':
+      return executeDeleteCandidateEmailMessage(projectId, args as DeleteEmailArgs);
+
+    case 'shortlistCandidateForProject':
+    case 'shortlistTalent':
+    case 'shortlistCandidate':
+      return executeShortlistCandidate(projectId, args as ShortlistCandidateArgs);
+
+    case 'listShortlistedTalentsForProject':
+    case 'listShortlist':
+    case 'listShortlistedTalents':
+      return executeListShortlistedTalents(projectId, args as ListShortlistedTalentsArgs);
+
+    case 'updateShortlistedTalentStatus':
+    case 'updateShortlistStatus':
+    case 'updateShortlistedTalent':
+      return executeUpdateShortlistedTalentStatus(projectId, args as UpdateShortlistedTalentStatusArgs);
+
+    case 'removeShortlistedTalentFromProject':
+    case 'removeShortlist':
+    case 'removeShortlistedTalent':
+      return executeRemoveShortlistedTalent(projectId, args as RemoveShortlistedTalentArgs);
 
     default:
       return {

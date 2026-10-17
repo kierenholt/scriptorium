@@ -6,7 +6,7 @@ import { EmailHub } from './components/EmailHub';
 import { OpenProjectModal } from './components/OpenProjectModal';
 import { StandaloneProjectView } from './components/StandaloneProjectView';
 import { subscribeToInboxEmails, subscribeToAllEmails, fetchRecentProjectsList } from './services/firebase';
-import { assignEmailToProject, fetchInboxEmails } from './services/api';
+import { assignEmailToProject, fetchInboxEmails, deleteEmail } from './services/api';
 import { ProjectEmail } from './types';
 import { isValidEntityId } from './services/entityId';
 import { AccessDenied } from './components/AccessDenied';
@@ -226,6 +226,17 @@ const SupervisorConsole: React.FC = () => {
     }
   };
 
+  const handleDeleteEmail = async (emailId: string) => {
+    try {
+      await deleteEmail(emailId);
+      await refreshInbox();
+    } catch (err: any) {
+      console.error('Failed to delete email:', err);
+      alert(`Failed to delete email: ${err.message}`);
+      throw err;
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0d1117] text-gray-200">
       {/* Global Header */}
@@ -254,6 +265,7 @@ const SupervisorConsole: React.FC = () => {
             activeProjectId={currentProjectId}
             onAssignEmail={handleAssignEmail}
             assigningId={assigningId}
+            onDeleteEmail={handleDeleteEmail}
             onSwitchToProject={handleOpenProject}
             projectTitles={projectTitles}
           />

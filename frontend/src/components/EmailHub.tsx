@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Loader2,
   Folder,
+  Trash2,
 } from 'lucide-react';
 import { ProjectEmail } from '../types';
 import { isValidEntityId } from '../services/entityId';
@@ -20,6 +21,7 @@ interface EmailHubProps {
   activeProjectId?: string;
   onAssignEmail: (emailId: string, targetProjectId: string) => Promise<void>;
   assigningId: string | null;
+  onDeleteEmail?: (emailId: string) => Promise<void>;
   onSwitchToProject: (projectId: string) => void;
   projectTitles?: Record<string, string>;
 }
@@ -30,6 +32,7 @@ export const EmailHub: React.FC<EmailHubProps> = ({
   activeProjectId,
   onAssignEmail,
   assigningId,
+  onDeleteEmail,
   onSwitchToProject,
   projectTitles = {},
 }) => {
@@ -38,6 +41,9 @@ export const EmailHub: React.FC<EmailHubProps> = ({
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [manualProjectId, setManualProjectId] = useState('');
   const [manualError, setManualError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   // Filter emails based on category and search query
   const filteredEmails = emails.filter((email) => {
@@ -57,6 +63,38 @@ export const EmailHub: React.FC<EmailHubProps> = ({
   });
 
   const selectedEmail = emails.find((e) => e.id === selectedEmailId) || filteredEmails[0] || null;
+
+  const handleSelectEmail = (emailId: string) => {
+    setSelectedEmailId(emailId);
+    setConfirmingDelete(false);
+  };
+
+  const handleFilterChange = (newFilter: 'inbox' | 'unassigned' | 'assigned') => {
+    setFilter(newFilter);
+    setConfirmingDelete(false);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!selectedEmail || !onDeleteEmail) return;
+    const targetId = selectedEmail.id;
+    const targetSubject = selectedEmail.subject;
+    try {
+      setDeletingId(targetId);
+      const currentIndex = filteredEmails.findIndex((e) => e.id === targetId);
+      const nextEmail = filteredEmails[currentIndex + 1] || filteredEmails[currentIndex - 1] || null;
+
+      await onDeleteEmail(targetId);
+
+      setSelectedEmailId(nextEmail ? nextEmail.id : null);
+      setConfirmingDelete(false);
+      setFeedbackMessage(`Email "${targetSubject || targetId}" successfully deleted.`);
+      setTimeout(() => setFeedbackMessage(null), 4000);
+    } catch (err: any) {
+      alert(`Failed to delete email: ${err?.message}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleManualAssign = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,7 +134,7 @@ export const EmailHub: React.FC<EmailHubProps> = ({
           <div className="flex rounded-md bg-[#0d1117] p-0.5 border border-[#30363d]">
             <button
               type="button"
-              onClick={() => setFilter('inbox')}
+              onClick={() => handleFilterChange('inbox')}
               data-testid="email-filter-inbox"
               className={`flex-1 py-1 text-xs font-medium rounded transition-colors ${
                 filter === 'inbox'
@@ -108,7 +146,7 @@ export const EmailHub: React.FC<EmailHubProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setFilter('unassigned')}
+              onClick={() => handleFilterChange('unassigned')}
               data-testid="email-filter-unassigned"
               className={`flex-1 py-1 text-xs font-medium rounded transition-colors ${
                 filter === 'unassigned'
@@ -120,7 +158,7 @@ export const EmailHub: React.FC<EmailHubProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setFilter('assigned')}
+              onClick={() => handleFilterChange('assigned')}
               data-testid="email-filter-assigned"
               className={`flex-1 py-1 text-xs font-medium rounded transition-colors ${
                 filter === 'assigned'
@@ -155,7 +193,7 @@ export const EmailHub: React.FC<EmailHubProps> = ({
               return (
                 <div
                   key={email.id}
-                  onClick={() => setSelectedEmailId(email.id)}
+                  onClick={() => handleSelectEmail(email.id)}
                   data-testid="email-hub-card"
                   className={`p-3 rounded-lg border cursor-pointer transition-all ${
                     isSelected
@@ -230,8 +268,61 @@ export const EmailHub: React.FC<EmailHubProps> = ({
                   <span className="font-mono text-xs text-gray-400 bg-[#0d1117] px-2 py-0.5 rounded border border-[#30363d]">
                     {selectedEmail.id}
                   </span>
+                  {onDeleteEmail && (
+                    !confirmingDelete ? (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingDelete(true)}
+                        data-testid="emailhub-delete-btn"
+                        title="Delete this email"
+                        className="flex items-center space-x-1 text-xs text-gray-400 hover:text-red-400 px-2 py-0.5 rounded bg-[#0d1117] hover:bg-red-950/30 border border-[#30363d] hover:border-red-800/50 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete</span>
+                      </button>
+                    ) : (
+                      <div className="flex items-center space-x-1.5 bg-[#0d1117] px-2 py-0.5 rounded border border-red-800/50">
+                        <span className="text-xs text-red-400 font-medium">Confirm delete?</span>
+                        <button
+                          type="button"
+                          disabled={deletingId === selectedEmail.id}
+                          onClick={handleConfirmDelete}
+                          data-testid="emailhub-confirm-delete-btn"
+                          className="flex items-center space-x-1 text-xs text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 px-2 py-0.5 rounded font-medium transition-colors"
+                        >
+                          {deletingId === selectedEmail.id ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Deleting...</span>
+                            </>
+                          ) : (
+                            <span>Yes, Delete</span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deletingId === selectedEmail.id}
+                          onClick={() => setConfirmingDelete(false)}
+                          data-testid="emailhub-cancel-delete-btn"
+                          className="text-xs text-gray-400 hover:text-gray-200 px-1.5 py-0.5 rounded bg-[#21262d] hover:bg-[#30363d] transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )
+                  )}
                 </div>
               </div>
+
+              {feedbackMessage && (
+                <div
+                  data-testid="emailhub-feedback-banner"
+                  className="p-2 rounded bg-emerald-950/40 border border-emerald-800/50 text-xs text-emerald-300 flex items-center space-x-1.5"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>{feedbackMessage}</span>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-400 pt-1">
                 <div>

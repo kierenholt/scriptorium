@@ -190,6 +190,12 @@ async function cleanupTestResources(testConfig = {}, {
             await msgDoc.ref.delete().catch(() => {});
           }
         }
+        const shortlistSnap = await db.collection('projects').doc(projectId).collection('shortlistedTalents').get().catch(() => null);
+        if (shortlistSnap && !shortlistSnap.empty) {
+          for (const stDoc of shortlistSnap.docs) {
+            await stDoc.ref.delete().catch(() => {});
+          }
+        }
         await db.collection('projects').doc(projectId).delete().catch(() => {});
       } catch (e) {
         // Continue cleanup

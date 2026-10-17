@@ -357,6 +357,124 @@ export const listUnassignedInboxEmailsDeclaration: FunctionDeclaration = {
   },
 };
 
+export const deleteCandidateEmailMessageDeclaration: FunctionDeclaration = {
+  name: 'deleteCandidateEmailMessage',
+  description:
+    'Permanently delete an obsolete, erroneous, or spam candidate or client email record from the Scriptorium repository, and remove it from any associated project communications. Use when the supervisor asks to "delete this email", "remove email em-...", "purge candidate message", or "delete message from inbox". Do NOT use this tool for archiving projects, removing requirement tags, or modifying candidate shortlists.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      emailId: {
+        type: Type.STRING,
+        description: 'The unique identifier of the email record to delete strictly adhering to em-xxxxxx format or provider message ID.',
+      },
+    },
+    required: ['emailId'],
+  },
+};
+
+export const shortlistCandidateForProjectDeclaration: FunctionDeclaration = {
+  name: 'shortlistCandidateForProject',
+  description:
+    'Add and nominate a vetted creative or linguistic candidate to the project\'s private talent shortlist. Use when the supervisor asks to "shortlist this candidate", "add Alice to the project shortlist", "nominate candidate", or "assign specialist to the brief". Do NOT use this tool for searching the talent pool or modifying general project requirements tags.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      name: {
+        type: Type.STRING,
+        description: 'The full professional name of the candidate or specialist being shortlisted.',
+      },
+      role: {
+        type: Type.STRING,
+        description: 'The creative or linguistic role or discipline for the candidate (e.g., German Transcreation Specialist, Senior Copywriter).',
+      },
+      talentId: {
+        type: Type.STRING,
+        description: 'The optional canonical talent entity ID (e.g. tl-xxxxxx) or Discovery Engine candidate record identifier.',
+      },
+      status: {
+        type: Type.STRING,
+        enum: ['nominated', 'contacted', 'shortlisted', 'rejected', 'booked'],
+        description: 'The initial lifecycle stage for the candidate shortlist entry (nominated, contacted, shortlisted, rejected, booked).',
+      },
+      notes: {
+        type: Type.STRING,
+        description: 'Supervisor evaluation remarks, brief fit rationales, or client-specific assessment notes.',
+      },
+      dayRate: {
+        type: Type.STRING,
+        description: 'Agreed or indicated daily or hourly compensation rate for the candidate.',
+      },
+    },
+    required: ['name', 'role'],
+  },
+};
+
+export const listShortlistedTalentsForProjectDeclaration: FunctionDeclaration = {
+  name: 'listShortlistedTalentsForProject',
+  description:
+    'Retrieve and inspect the roster of candidates currently shortlisted for the project. Use when the supervisor asks to "show shortlisted candidates", "list project shortlist", "who is on the shortlist for this brief", or "check shortlisted talent". Do NOT use this tool for querying the global unassigned talent database or listing project emails.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      status: {
+        type: Type.STRING,
+        enum: ['nominated', 'contacted', 'shortlisted', 'rejected', 'booked'],
+        description: 'Optional filter to inspect shortlisted candidates in a specific lifecycle stage (nominated, contacted, shortlisted, rejected, booked).',
+      },
+      limit: {
+        type: Type.INTEGER,
+        description: 'Maximum number of shortlisted candidate entries to retrieve (default: 20, max: 100).',
+      },
+    },
+  },
+};
+
+export const updateShortlistedTalentStatusDeclaration: FunctionDeclaration = {
+  name: 'updateShortlistedTalentStatus',
+  description:
+    'Update the vetting status, assessment notes, or booking stage of a candidate on the project shortlist. Use when the supervisor instructs to "mark shortlisted candidate as booked", "update Alice\'s status to contacted", "add notes to candidate shortlist", or "reject candidate from shortlist". Do NOT use this tool for updating overall project lifecycle status or editing project brief descriptions.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      shortlistId: {
+        type: Type.STRING,
+        description: 'The unique shortlisted candidate record identifier (format: sl-xxxxxx).',
+      },
+      status: {
+        type: Type.STRING,
+        enum: ['nominated', 'contacted', 'shortlisted', 'rejected', 'booked'],
+        description: 'The new progression stage for the shortlisted candidate (nominated, contacted, shortlisted, rejected, booked).',
+      },
+      notes: {
+        type: Type.STRING,
+        description: 'Updated supervisor evaluation remarks, availability feedback, or interview feedback.',
+      },
+      dayRate: {
+        type: Type.STRING,
+        description: 'Updated agreed compensation rate or commercial day rate.',
+      },
+    },
+    required: ['shortlistId'],
+  },
+};
+
+export const removeShortlistedTalentFromProjectDeclaration: FunctionDeclaration = {
+  name: 'removeShortlistedTalentFromProject',
+  description:
+    'Remove or disqualify a candidate from the project\'s shortlisted talent roster. Use when the supervisor requests to "remove candidate from shortlist", "delete Alice from the project shortlist", or "drop candidate from brief". Do NOT use this tool for deleting project files or removing project competency tags.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      shortlistId: {
+        type: Type.STRING,
+        description: 'The unique shortlisted candidate record identifier to remove (format: sl-xxxxxx).',
+      },
+    },
+    required: ['shortlistId'],
+  },
+};
+
 // Backwards-compatible aliases
 export const updateStatusDeclaration = updateProjectLifecycleStageDeclaration;
 export const renameProjectDeclaration = renameProjectDocumentDeclaration;
@@ -379,6 +497,11 @@ export const lookupProjectsByEmailSenderDeclaration = getProjectsFromEmailSender
 export const moveEmailToProjectDeclaration = assignEmailToProjectDeclaration;
 export const associateEmailWithProjectDeclaration = assignEmailToProjectDeclaration;
 export const listInboxEmailsDeclaration = listUnassignedInboxEmailsDeclaration;
+export const deleteEmailDeclaration = deleteCandidateEmailMessageDeclaration;
+export const shortlistTalentDeclaration = shortlistCandidateForProjectDeclaration;
+export const listShortlistDeclaration = listShortlistedTalentsForProjectDeclaration;
+export const updateShortlistStatusDeclaration = updateShortlistedTalentStatusDeclaration;
+export const removeShortlistDeclaration = removeShortlistedTalentFromProjectDeclaration;
 
 export const allToolDeclarations: FunctionDeclaration[] = [
   updateProjectLifecycleStageDeclaration,
@@ -398,6 +521,11 @@ export const allToolDeclarations: FunctionDeclaration[] = [
   getProjectsFromEmailSenderDeclaration,
   assignEmailToProjectDeclaration,
   listUnassignedInboxEmailsDeclaration,
+  deleteCandidateEmailMessageDeclaration,
+  shortlistCandidateForProjectDeclaration,
+  listShortlistedTalentsForProjectDeclaration,
+  updateShortlistedTalentStatusDeclaration,
+  removeShortlistedTalentFromProjectDeclaration,
 ];
 
 

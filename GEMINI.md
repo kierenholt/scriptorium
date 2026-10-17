@@ -165,6 +165,7 @@ flowchart TD
   - `POST /emailService`: Dispatches outbound transactional emails (thank you, acceptance, renewals, credentials, notifications) across the platform via Resend API or local MailDev SMTP.
   - `POST /searchTalent`: Accepts a semantic candidate search query and optional metadata filters, calling the Discovery Engine API with GoogleAuth credentials.
   - `GET /downloadArtifact`: Validates timeboxed HMAC SHA-256 signature and streams project artifact files directly from GCS (`gs://scriptorium-project-artifacts-503507/projects/{projectId}/{filename}`).
+  - `POST/DELETE /deleteEmail`: Permanently removes an email record from Firestore repository and cleans up references from any associated project document's emails array.
 - **Tools Engine (`functions/src/tools/`)**:
   - `lookupProjectRecord`: Looks up and retrieves full Firestore project document details by project ID (`pr-xxxxxx`).
   - `listRecentProjects`: Retrieves summary of recently active or created projects (IDs, titles, status, tags).
@@ -181,9 +182,17 @@ flowchart TD
   - `getProjectsFromEmailSender`: Identifies and lists all Scriptorium projects that have corresponded with, received messages from, or contacted a specific candidate or email sender address.
   - `assignEmailToProject`: Explicitly moves, associates, and stores an inbound or unassigned email message into a specific Scriptorium project document (`projects/{projectId}.emails`).
   - `listUnassignedInboxEmails`: Inspects and lists unassigned incoming candidate or client emails waiting in the inbox that have not yet been associated with any Scriptorium project.
+  - `deleteCandidateEmailMessage`: Permanently deletes an email record from the Firestore `emails` collection, removes it from any associated project communications (`projects/{projectId}.emails`), and attempts deletion via Resend API.
+  - `shortlistCandidateForProject`: Adds and nominates a vetted creative or linguistic candidate to the project's private talent shortlist (`projects/{projectId}/shortlistedTalents`).
+  - `listShortlistedTalentsForProject`: Retrieves and inspects the roster of candidates currently shortlisted for the project, supporting lifecycle status filtering.
+  - `updateShortlistedTalentStatus`: Modifies the vetting status, assessment notes, or booking stage of a candidate on the project shortlist.
+  - `removeShortlistedTalentFromProject`: Removes or disqualifies a candidate from the project's shortlisted talent roster.
   - `saveProjectArtifact`: Promotes uploaded briefs, dossiers, or deliverables from `scriptorium-uploads-503507` into the permanent project artifacts bucket (`gs://scriptorium-project-artifacts-503507/projects/{projectId}/{filename}`) and registers the artifact metadata record and optional comment in Firestore `projects/{projectId}.artifacts`.
   - `getProjectArtifactDownloadUrl`: Looks up a saved project artifact by ID, name, or comment, and generates a secure timeboxed download URL.
-  - *Modular Tools Engine*: Concrete executors are partitioned by domain into `projectExecutors.ts`, `talentExecutors.ts`, and `emailExecutors.ts` with shared types in `types.ts`. The unified facade and dispatcher `executors.ts` (`dispatchToolCall`) translates domain-named agent tool calls to the respective domain executors.
+  - *Modular In-Process Dispatch Architecture*:
+    - **No HTTP Tool Endpoints**: Individual agent tools do **NOT** expose separate HTTP endpoints. All tool invocations happen strictly in-memory within the active `/chat` SSE connection via the `dispatchToolCall(projectId, toolName, args)` router in `executors.ts`.
+    - **Direct SDK Mutations**: Executors (`projectExecutors.ts`, `talentExecutors.ts`, `emailExecutors.ts`, `shortlistExecutors.ts`) mutate datastores directly via the Firebase Admin SDK, Cloud Storage SDK, and Discovery Engine client without nested loopback network requests.
+    - **Reactive 70/30 UI Synchronization**: When an executor mutates Firestore (e.g. `FieldValue.arrayUnion` or subcollection creation), the agent does not send document state across SSE. Instead, the frontend client's Firestore `onSnapshot` listener in `ProjectTabSession.tsx` fires reactively and updates `ProjectViewer.tsx` immediately while the agent continues streaming thoughts and final natural language confirmation in `ChatPanel.tsx`.
 
 #### C. Cloud Storage & Candidate Repository
 - **Uploads Bucket**: `gs://scriptorium-uploads-503507` (Region: `europe-west2`, Standard storage class, uniform bucket-level access) for user/agent uploaded briefs, dossiers, and resumes.
@@ -217,6 +226,11 @@ flowchart TD
   - `assignEmailToProject`: Explicitly moves and attaches an email into `projects/{projectId}.emails`.
   - `listUnassignedInboxEmails`: Ingests and lists unassigned incoming messages via Resend Receiving API for agent triage.
   - `readCandidateEmailMessage`: Inspects and reads incoming or outgoing email communications, querying Resend Receiving API first for inbound messages before checking outbound and local repository records.
+  - `deleteCandidateEmailMessage`: Permanently deletes an email record from the Firestore repository, cleans up any associated project document's emails array, and attempts deletion via Resend API.
+- **Email Deletion & Inline Safety Confirmation**:
+  - In `EmailHub.tsx`, the detail inspector header includes a dedicated Delete button (`data-testid="emailhub-delete-btn"`).
+  - Activating Delete toggles an inline safety confirmation (`data-testid="emailhub-confirm-delete-btn"` / `data-testid="emailhub-cancel-delete-btn"`) preventing accidental clicks.
+  - Upon confirmation, it executes `deleteEmail` against the backend `/deleteEmail` endpoint, purging `emails/{emailId}`, updating `projects/{projectId}.emails`, advancing selection to the next email card, and rendering transient feedback (`data-testid="emailhub-feedback-banner"`).
 - **Fail-Fast Credential Isolation**:
   - `RESEND_API_KEY` is loaded strictly from environment files (`.env.local`, `.env.production`). No hardcoded API keys or fallback strings are permitted in production or test files. Missing keys trigger explicit error responses (`MISSING_RESEND_API_KEY`).
   - Standalone binaries (e.g. `tools/resend`) are excluded via `.gitignore`.
@@ -232,6 +246,7 @@ flowchart TD
   | **`em-`** | `emails/{emailId}` | Inbound/outbound email communications & audit records | `em-v9d2m5` |
   | **`ar-`** | `project.artifacts[].id` | Deliverables, approved briefs, and dossiers in project repo | `ar-4k8x2q` |
   | **`tl-`** | Talent Datastore / CV Profiles | Candidate CV profiles registered in Discovery Engine / datastore | `tl-3n7w1z` |
+  | **`sl-`** | `projects/{projectId}/shortlistedTalents/{shortlistId}` | Candidate shortlist records under a project | `sl-fu9k4d` |
 - **Exemptions**:
   - `function_logs/{document}` is explicitly exempt from the `[a-z]{2}-[a-z0-9]{6}` rule because it is high-throughput backend telemetry not queried or cited by conversational agents.
 - **Fail-Fast Validation**:
@@ -259,6 +274,36 @@ flowchart TD
   - `tests/loggingHelper.js` automatically provisions the supervisor token to test browser contexts via `context.addInitScript` so existing E2E suites run uninterrupted.
   - Tests can set `window.__DISABLE_TEST_SUPERVISOR_AUTH__ = true` to assert on unauthorized states (`tests/supervisorDashboard_missingOrInvalidToken_rendersAccessDenied_test.spec.js`).
   - Unit test suite (`frontend/src/tests/supervisorTokenGuard_missingOrInvalidToken_rendersAccessDenied_test.tsx`) validates missing, invalid, and valid token flows in jsdom.
+
+#### G. Shortlisted Talents Collection & Agent Management (`functions/src/tools/shortlistExecutors.ts`)
+- **Storage Architecture & Security Rules**:
+  - Stored under the dedicated Firestore subcollection `projects/{projectId}/shortlistedTalents/{shortlistId}`.
+  - Entity ID convention: `sl-[a-z0-9]{6}` (e.g. `sl-fu9k4d`).
+  - Enforced in `firestore.rules`: `match /shortlistedTalents/{shortlistId} { allow read, write: if true; }`.
+- **Shortlisted Talent Document Schema (`ShortlistedTalent`)**:
+  - `id`: `sl-[a-z0-9]{6}`
+  - `name`: Full candidate name (string)
+  - `role`: Creative or linguistic discipline (e.g. "Senior Transcreation Specialist", "Lead Copywriter")
+  - `status`: Shortlist progression stage (`'nominated' | 'contacted' | 'shortlisted' | 'rejected' | 'booked'`)
+  - `talentId`?: Optional canonical talent profile entity identifier (e.g. `tl-xxxxxx`)
+  - `dayRate`?: Indicated or agreed day/hourly compensation rate
+  - `notes`?: Supervisor evaluation remarks and client brief fit rationales
+  - `createdAt`: ISO 8601 creation timestamp
+  - `updatedAt`: ISO 8601 modification timestamp
+- **Domain Agent CRUD Tools (`functions/src/tools/declarations.ts`)**:
+  - `shortlistCandidateForProject` (Create): Nominates and shortlists a candidate for the specified project brief.
+  - `listShortlistedTalentsForProject` (Read): Retrieves the project's shortlisted candidates, supporting status filtering and pagination limit.
+  - `updateShortlistedTalentStatus` (Update): Modifies candidate progression stage, notes, or day rate.
+  - `removeShortlistedTalentFromProject` (Delete): Disqualifies and purges a candidate from the project shortlist.
+- **Supervisor UI Integration (`ProjectViewer.tsx` & `ProjectTabSession.tsx`)**:
+  - **Left Domain Sub-Sidebar**: Dedicated "Shortlisted Talent" navigation button (`data-testid="project-nav-shortlist"`) with dynamic document counter badge.
+  - **Central Inspector Roster**: Displays candidate cards (`data-testid="project-shortlist-list"`) with candidate name, entity ID pills, status pills (`nominated` in amber, `contacted` in purple, `shortlisted` in blue, `booked` in emerald, `rejected` in red), role, day rate, notes, and relative timestamps.
+  - **Overview Metric Counters**: Overview summary metrics includes a 4th counter: "Shortlist" (`data-testid="project-shortlist-count"`).
+  - **Raw JSON Expandable Subcollections**: The formatted Raw JSON view exposes both `messages` and `shortlistedTalents` under `_subcollections` with independent expand/collapse toggles (`data-testid="subcollection-shortlist-toggle"`), document count pills, manual reload triggers, and unified JSON export.
+- **Fail-Fast Validation & Test Coverage**:
+  - Full backend unit tests in `functions/tests/executeShortlistExecutors_validAndInvalidOperations_managesProjectShortlist_test.ts`.
+  - Frontend DOM unit tests in `frontend/src/tests/projectViewer_shortlistedTalents_rendersRosterAndRawJsonSubcollection_test.tsx`.
+  - Full multi-turn browser integration test in `tests/shortlistedTalents_agentCommand_shortlistsCandidateAndUpdatesViewer_test.spec.js`.
 
 ---
 

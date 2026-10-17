@@ -16,10 +16,11 @@ import {
   Check,
   RefreshCw,
   ExternalLink,
+  UserCheck,
 } from 'lucide-react';
-import { ProjectDocument, ProjectStatus, ProjectArtifact, ProjectEmail, ChatMessage } from '../types';
+import { ProjectDocument, ProjectStatus, ProjectArtifact, ProjectEmail, ChatMessage, ShortlistedTalent, ShortlistStatus } from '../types';
 import { seedProject } from '../services/api';
-import { fetchProjectMessages } from '../services/firebase';
+import { fetchProjectMessages, fetchProjectShortlistedTalents, subscribeToShortlistedTalents } from '../services/firebase';
 
 interface ProjectViewerProps {
   projectId?: string;
@@ -27,11 +28,12 @@ interface ProjectViewerProps {
   loading: boolean;
   error?: string | null;
   messages?: ChatMessage[];
-  onLoadSubcollection?: (name: string) => Promise<ChatMessage[]>;
+  shortlistedTalents?: ShortlistedTalent[];
+  onLoadSubcollection?: (name: string) => Promise<any[]>;
   isStandalone?: boolean;
 }
 
-type SectionKey = 'overview' | 'brief' | 'tags' | 'artifacts' | 'emails';
+type SectionKey = 'overview' | 'brief' | 'tags' | 'artifacts' | 'emails' | 'shortlist';
 
 export const ProjectViewer: React.FC<ProjectViewerProps> = ({
   projectId,
@@ -39,6 +41,7 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
   loading,
   error,
   messages,
+  shortlistedTalents,
   onLoadSubcollection,
   isStandalone = false,
 }) => {
@@ -54,6 +57,13 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
   const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>(messages || []);
   const [copied, setCopied] = useState(false);
 
+  // Shortlist subcollection state
+  const [shortlistItems, setShortlistItems] = useState<ShortlistedTalent[]>(shortlistedTalents || []);
+  const [shortlistExpanded, setShortlistExpanded] = useState(false);
+  const [shortlistLoaded, setShortlistLoaded] = useState(Boolean(shortlistedTalents && shortlistedTalents.length > 0));
+  const [loadingShortlist, setLoadingShortlist] = useState(false);
+  const [shortlistError, setShortlistError] = useState<string | null>(null);
+
   // Sync if messages prop updates from parent
   useEffect(() => {
     if (messages && messages.length > 0) {
@@ -61,6 +71,33 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
       setSubcollectionLoaded(true);
     }
   }, [messages]);
+
+  // Sync if shortlistedTalents prop updates from parent
+  useEffect(() => {
+    if (shortlistedTalents !== undefined) {
+      setShortlistItems(shortlistedTalents);
+      setShortlistLoaded(true);
+    }
+  }, [shortlistedTalents]);
+
+  // Real-time listener for shortlistedTalents subcollection
+  useEffect(() => {
+    const targetProjectId = projectId || project?.id;
+    if (!targetProjectId) return;
+
+    const unsub = subscribeToShortlistedTalents(
+      targetProjectId,
+      (items) => {
+        setShortlistItems(items);
+        setShortlistLoaded(true);
+      },
+      (err) => {
+        console.warn(`[ProjectViewer] Failed to subscribe to shortlisted talents for ${targetProjectId}:`, err);
+      }
+    );
+
+    return () => unsub();
+  }, [projectId, project?.id]);
 
   const loadSubcollectionMessages = async () => {
     const targetProjectId = projectId || project?.id;
@@ -101,6 +138,40 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
     await loadSubcollectionMessages();
   };
 
+  const loadSubcollectionShortlist = async () => {
+    const targetProjectId = projectId || project?.id;
+    if (!targetProjectId) return;
+
+    setLoadingShortlist(true);
+    setShortlistError(null);
+    try {
+      const items = await fetchProjectShortlistedTalents(targetProjectId);
+      setShortlistItems(items);
+      setShortlistLoaded(true);
+    } catch (err: any) {
+      setShortlistError(err.message || 'Failed to load shortlistedTalents subcollection');
+    } finally {
+      setLoadingShortlist(false);
+    }
+  };
+
+  const handleToggleShortlistSubcollection = async () => {
+    if (shortlistExpanded) {
+      setShortlistExpanded(false);
+      return;
+    }
+
+    setShortlistExpanded(true);
+    if (!shortlistLoaded) {
+      await loadSubcollectionShortlist();
+    }
+  };
+
+  const handleRefreshShortlistSubcollection = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await loadSubcollectionShortlist();
+  };
+
   // Flash / pulse effect when project data changes in real-time
   useEffect(() => {
     if (project) {
@@ -116,6 +187,7 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
     JSON.stringify(project?.tags),
     JSON.stringify(project?.artifacts),
     JSON.stringify(project?.emails),
+    JSON.stringify(shortlistItems),
   ]);
 
   const baseJson = project ? JSON.stringify(project, null, 2) : '';
@@ -153,6 +225,23 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
     }
   };
 
+  const getShortlistStatusPill = (status: ShortlistStatus) => {
+    switch (status) {
+      case 'booked':
+        return 'bg-emerald-950/60 text-emerald-400 border-emerald-800/40';
+      case 'shortlisted':
+        return 'bg-blue-950/60 text-blue-400 border-blue-800/40';
+      case 'contacted':
+        return 'bg-purple-950/60 text-purple-400 border-purple-800/40';
+      case 'nominated':
+        return 'bg-amber-950/60 text-amber-400 border-amber-800/40';
+      case 'rejected':
+        return 'bg-red-950/60 text-red-400 border-red-800/40';
+      default:
+        return 'bg-slate-800 text-slate-300 border-slate-700';
+    }
+  };
+
   const navItems: { id: SectionKey; label: string; icon: React.ReactNode; count?: number }[] = [
     {
       id: 'overview',
@@ -181,6 +270,12 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
       label: 'Communications',
       icon: <Mail className="w-3.5 h-3.5" />,
       count: project?.emails?.length || 0,
+    },
+    {
+      id: 'shortlist',
+      label: 'Shortlisted Talent',
+      icon: <UserCheck className="w-3.5 h-3.5" />,
+      count: shortlistItems.length,
     },
   ];
 
@@ -334,21 +429,29 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
               <div className="flex items-center space-x-2 text-xs text-gray-400">
                 <span className="font-mono text-gray-300">projects/{projectId || project.id}</span>
                 <span className="text-gray-600">•</span>
-                <span className="text-purple-400 font-mono">1 subcollection available</span>
+                <span className="text-purple-400 font-mono">2 subcollections available</span>
               </div>
               <div className="flex items-center space-x-2">
                 <button
                   type="button"
                   data-testid="toggle-all-subcollections-btn"
-                  onClick={handleToggleSubcollection}
-                  disabled={loadingSubcollection}
+                  onClick={async () => {
+                    if (messagesExpanded && shortlistExpanded) {
+                      setMessagesExpanded(false);
+                      setShortlistExpanded(false);
+                    } else {
+                      setMessagesExpanded(true);
+                      setShortlistExpanded(true);
+                      if (!subcollectionLoaded) await loadSubcollectionMessages();
+                      if (!shortlistLoaded) await loadSubcollectionShortlist();
+                    }
+                  }}
+                  disabled={loadingSubcollection || loadingShortlist}
                   className="px-2 py-1 text-xs rounded bg-[#21262d] hover:bg-[#30363d] text-gray-300 border border-[#30363d] transition-colors disabled:opacity-50"
                 >
-                  {messagesExpanded
+                  {messagesExpanded && shortlistExpanded
                     ? 'Collapse Subcollections'
-                    : subcollectionLoaded
-                    ? 'Expand Subcollections'
-                    : 'Load & Expand Subcollections'}
+                    : 'Expand Subcollections'}
                 </button>
                 <button
                   type="button"
@@ -359,6 +462,7 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
                         ...project,
                         _subcollections: {
                           messages: subcollectionLoaded ? loadedMessages : '[Not loaded - click expander to load]',
+                          shortlistedTalents: shortlistLoaded ? shortlistItems : '[Not loaded - click expander to load]',
                         },
                       },
                       null,
@@ -471,6 +575,89 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
                   >
                     {subcollectionLoaded
                       ? `/* ${loadedMessages.length} documents (collapsed) */`
+                      : '/* [not loaded - click to fetch] */'}
+                  </span>
+                )}
+                {',\n    '}
+                <span className="text-pink-400 font-semibold">"shortlistedTalents"</span>
+                {': '}
+                <button
+                  type="button"
+                  data-testid="subcollection-shortlist-toggle"
+                  onClick={handleToggleShortlistSubcollection}
+                  disabled={loadingShortlist}
+                  className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded bg-[#21262d] hover:bg-[#30363d] text-pink-400 hover:text-pink-300 border border-[#30363d] cursor-pointer text-xs align-middle transition-colors font-sans select-none disabled:opacity-60"
+                >
+                  {loadingShortlist ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-pink-400" />
+                  ) : (
+                    <ChevronRight
+                      className={`w-3.5 h-3.5 transition-transform duration-150 ${
+                        shortlistExpanded ? 'rotate-90' : ''
+                      }`}
+                    />
+                  )}
+                  <span>subcollection</span>
+                  {shortlistLoaded ? (
+                    <span className="text-gray-400 text-[11px]">
+                      ({shortlistItems.length} {shortlistItems.length === 1 ? 'doc' : 'docs'})
+                    </span>
+                  ) : (
+                    <span className="text-amber-400/90 text-[11px] font-medium">
+                      (click to load)
+                    </span>
+                  )}
+                  <span className="text-gray-500 text-[10px]">
+                    {loadingShortlist
+                      ? '[loading...]'
+                      : shortlistExpanded
+                      ? '[click to collapse]'
+                      : shortlistLoaded
+                      ? '[click to expand]'
+                      : '[load & expand]'}
+                  </span>
+                </button>
+                {shortlistLoaded && (
+                  <button
+                    type="button"
+                    data-testid="reload-subcollection-shortlist-btn"
+                    onClick={handleRefreshShortlistSubcollection}
+                    disabled={loadingShortlist}
+                    className="inline-flex items-center p-0.5 text-gray-400 hover:text-gray-200 transition-colors ml-1 align-middle disabled:opacity-50"
+                    title="Reload shortlisted talents documents"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${loadingShortlist ? 'animate-spin text-pink-400' : ''}`} />
+                  </button>
+                )}
+                {loadingShortlist ? (
+                  <div
+                    data-testid="subcollection-shortlist-loading"
+                    className="text-gray-400 pl-6 my-1 font-mono italic text-xs flex items-center space-x-2"
+                  >
+                    <Loader2 className="w-3 h-3 animate-spin text-pink-400" />
+                    <span>/* Loading shortlistedTalents subcollection documents from Firestore... */</span>
+                  </div>
+                ) : shortlistError ? (
+                  <div
+                    data-testid="subcollection-shortlist-error"
+                    className="text-red-400 pl-6 my-1 font-mono text-xs"
+                  >
+                    /* Error loading subcollection: {shortlistError} */
+                  </div>
+                ) : shortlistExpanded ? (
+                  <div
+                    data-testid="subcollection-shortlist-content"
+                    className="text-emerald-400/90 pl-6 my-1 border-l-2 border-pink-500/30 ml-4 py-1"
+                  >
+                    {JSON.stringify(shortlistItems, null, 2)}
+                  </div>
+                ) : (
+                  <span
+                    data-testid="subcollection-shortlist-collapsed"
+                    className="text-gray-500 text-xs ml-2 italic font-mono"
+                  >
+                    {shortlistLoaded
+                      ? `/* ${shortlistItems.length} documents (collapsed) */`
                       : '/* [not loaded - click to fetch] */'}
                   </span>
                 )}
@@ -595,7 +782,7 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
                   </div>
 
                   {/* Summary Metric Counters */}
-                  <div className="grid grid-cols-3 gap-3 pt-2 border-t border-[#30363d]">
+                  <div className="grid grid-cols-4 gap-3 pt-2 border-t border-[#30363d]">
                     <div className="bg-[#0d1117] p-2.5 rounded border border-[#30363d]">
                       <div className="text-[10px] uppercase text-gray-500 font-semibold">Requirements</div>
                       <div className="text-base font-bold text-gray-200 mt-0.5">
@@ -612,6 +799,12 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
                       <div className="text-[10px] uppercase text-gray-500 font-semibold">Emails</div>
                       <div className="text-base font-bold text-gray-200 mt-0.5">
                         {project.emails?.length || 0}
+                      </div>
+                    </div>
+                    <div className="bg-[#0d1117] p-2.5 rounded border border-[#30363d]">
+                      <div className="text-[10px] uppercase text-gray-500 font-semibold">Shortlist</div>
+                      <div data-testid="project-shortlist-count" className="text-base font-bold text-pink-400 mt-0.5">
+                        {shortlistItems.length}
                       </div>
                     </div>
                   </div>
@@ -805,6 +998,103 @@ export const ProjectViewer: React.FC<ProjectViewerProps> = ({
                               {email.body}
                             </p>
                           )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Shortlisted Talent Roster Card */}
+              {(activeSection === 'overview' || activeSection === 'shortlist') && (
+                <div
+                  className={`rounded-lg bg-[#161b22] border p-5 transition-all duration-300 space-y-3 ${
+                    pulse ? 'border-emerald-500/80 shadow-lg shadow-emerald-500/10' : 'border-[#30363d]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <UserCheck className="w-4 h-4 text-pink-400" />
+                      <h3 className="text-xs font-semibold text-gray-200 uppercase tracking-wide">
+                        Shortlisted Talent Roster
+                      </h3>
+                    </div>
+                    <span className="text-[11px] text-gray-400 font-mono">
+                      {shortlistItems.length} candidate(s)
+                    </span>
+                  </div>
+
+                  <div data-testid="project-shortlist-list" className="space-y-2">
+                    {shortlistItems.length === 0 ? (
+                      <div className="p-4 bg-[#0d1117] rounded border border-[#30363d] text-center text-xs text-gray-500 italic">
+                        No candidates currently shortlisted for this project.
+                      </div>
+                    ) : (
+                      shortlistItems.map((talent: ShortlistedTalent) => (
+                        <div
+                          key={talent.id}
+                          data-testid={`project-shortlist-item-${talent.id}`}
+                          className="p-3.5 bg-[#0d1117] rounded-md border border-[#30363d] hover:border-gray-600 transition-all space-y-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <span
+                                data-testid={`project-shortlist-name-${talent.id}`}
+                                className="font-semibold text-xs text-gray-100 font-sans"
+                              >
+                                {talent.name}
+                              </span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-950/50 text-pink-300 border border-pink-800/40 font-mono">
+                                {talent.id}
+                              </span>
+                              {talent.talentId && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-950/50 text-blue-300 border border-blue-800/40 font-mono">
+                                  {talent.talentId}
+                                </span>
+                              )}
+                            </div>
+                            <span
+                              data-testid={`project-shortlist-status-${talent.id}`}
+                              className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full border ${getShortlistStatusPill(
+                                talent.status
+                              )}`}
+                            >
+                              {talent.status}
+                            </span>
+                          </div>
+
+                          <div className="text-xs text-gray-400 font-medium flex items-center space-x-2">
+                            <span data-testid={`project-shortlist-role-${talent.id}`} className="text-gray-300">
+                              {talent.role}
+                            </span>
+                            {talent.dayRate && (
+                              <>
+                                <span>•</span>
+                                <span
+                                  data-testid={`project-shortlist-rate-${talent.id}`}
+                                  className="text-emerald-400 font-mono"
+                                >
+                                  {talent.dayRate}
+                                </span>
+                              </>
+                            )}
+                          </div>
+
+                          {talent.notes && (
+                            <p
+                              data-testid={`project-shortlist-notes-${talent.id}`}
+                              className="text-xs text-gray-400 font-sans bg-[#161b22] p-2 rounded border border-[#30363d]/60"
+                            >
+                              {talent.notes}
+                            </p>
+                          )}
+
+                          <div className="text-[10px] text-gray-500 font-mono flex items-center space-x-3">
+                            <span>Added: {new Date(talent.createdAt).toLocaleDateString()}</span>
+                            {talent.updatedAt !== talent.createdAt && (
+                              <span>Updated: {new Date(talent.updatedAt).toLocaleTimeString()}</span>
+                            )}
+                          </div>
                         </div>
                       ))
                     )}

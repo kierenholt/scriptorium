@@ -1,5 +1,19 @@
 export type ProjectStatus = 'draft' | 'in_progress' | 'blocked' | 'completed';
 
+export type ShortlistStatus = 'nominated' | 'contacted' | 'shortlisted' | 'rejected' | 'booked';
+
+export interface ShortlistedTalent {
+  id: string; // sl-xxxxxx
+  talentId?: string;
+  name: string;
+  role: string;
+  status: ShortlistStatus;
+  notes?: string;
+  dayRate?: string | number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProjectArtifact {
   id: string;
   name: string;

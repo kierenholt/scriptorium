@@ -8,6 +8,10 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read, write: if true;
       }
+
+      match /shortlistedTalents/{shortlistId} {
+        allow read, write: if true;
+      }
     }
 
     // Emails repository (inbound/outbound tracking)

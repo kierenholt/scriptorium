@@ -10,7 +10,7 @@ import {
 describe('generateEntityId_allPrefixes_conformsToStrictAlphanumericFormat_test', () => {
   it('generateEntityId_allTaxonomyPrefixes_matchesStrictAlphanumericFormat_test', () => {
     const prefixes = Object.keys(ENTITY_PREFIX_TAXONOMY) as EntityPrefix[];
-    expect(prefixes).toEqual(['pr', 'ms', 'em', 'ar', 'tl']);
+    expect(prefixes).toEqual(['pr', 'ms', 'em', 'ar', 'tl', 'sl']);
 
     for (const prefix of prefixes) {
       for (let i = 0; i < 20; i++) {

@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 
-export type EntityPrefix = 'pr' | 'ms' | 'em' | 'ar' | 'tl';
+export type EntityPrefix = 'pr' | 'ms' | 'em' | 'ar' | 'tl' | 'sl';
 
 export const ENTITY_PREFIX_TAXONOMY: Record<EntityPrefix, { collection: string; description: string }> = {
   pr: { collection: 'projects', description: 'Project document record (projects/{projectId})' },
@@ -8,6 +8,7 @@ export const ENTITY_PREFIX_TAXONOMY: Record<EntityPrefix, { collection: string; 
   em: { collection: 'emails', description: 'Candidate/client outbound or inbound email communication (emails/{emailId})' },
   ar: { collection: 'artifacts', description: 'Project deliverable or dossier artifact ID (project.artifacts[].id)' },
   tl: { collection: 'talent', description: 'Candidate CV profile or Discovery Engine datastore record' },
+  sl: { collection: 'shortlistedTalents', description: 'Shortlisted talent record in project (projects/{projectId}/shortlistedTalents/{shortlistId})' },
 };
 
 const ALPHANUMERIC_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';

@@ -9,7 +9,11 @@ import { verifyArtifactDownloadToken } from './artifactTokens';
 import { setupFirestoreLogging, logToFirestore } from './logger';
 import { serverConfig } from './config';
 import { assertValidEntityId } from './entityId';
-import { executeAssignEmailToProject, executeListUnassignedInboxEmails } from './tools/emailExecutors';
+import {
+  executeAssignEmailToProject,
+  executeListUnassignedInboxEmails,
+  executeDeleteCandidateEmailMessage,
+} from './tools/emailExecutors';
 
 export { setupFirestoreLogging, logToFirestore } from './logger';
 
@@ -621,6 +625,79 @@ export const listInboxEmails = onRequest(
         res.status(200).json(result);
       } catch (err: any) {
         res.status(500).json({ error: err?.message || 'Failed to list inbox emails' });
+      }
+    });
+  }
+);
+
+/**
+ * Delete Email Endpoint.
+ * Permanently removes an email record from the repository and any project association.
+ */
+export const deleteEmail = onRequest(
+  {
+    region: 'europe-west2',
+    timeoutSeconds: 60,
+    cors: true,
+  },
+  async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    corsHandler(req, res, async () => {
+      if (req.method === 'OPTIONS') {
+        res.status(204).send('');
+        return;
+      }
+
+      if (req.method !== 'POST' && req.method !== 'DELETE') {
+        res.status(405).json({
+          error: 'METHOD_NOT_ALLOWED',
+          message: 'Only POST and DELETE requests are supported on /deleteEmail.',
+        });
+        return;
+      }
+
+      const emailId = (req.body?.emailId || req.query?.emailId)?.toString()?.trim();
+
+      if (!emailId) {
+        res.status(400).json({
+          error: 'MISSING_EMAIL_ID',
+          message: '[FAIL FAST] Mandatory field "emailId" is missing from request.',
+        });
+        return;
+      }
+
+      try {
+        await logToFirestore(
+          'info',
+          `[deleteEmail] Deleting email "${emailId}"`,
+          { emailId },
+          'deleteEmail'
+        );
+
+        const result = await executeDeleteCandidateEmailMessage('', {
+          emailId,
+        });
+
+        if (!result.success) {
+          res.status(400).json(result);
+          return;
+        }
+
+        res.status(200).json(result);
+      } catch (err: any) {
+        await logToFirestore(
+          'error',
+          `[deleteEmail] Failed to delete email: ${err?.message}`,
+          { error: err?.message, emailId },
+          'deleteEmail'
+        );
+        res.status(500).json({
+          error: 'DELETE_EMAIL_FAILED',
+          message: err?.message || 'Failed to delete email record.',
+        });
       }
     });
   }

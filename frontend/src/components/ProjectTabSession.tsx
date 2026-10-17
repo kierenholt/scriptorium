@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ProjectViewer } from './ProjectViewer';
 import { ChatPanel } from './ChatPanel';
-import { subscribeToProject, subscribeToMessages } from '../services/firebase';
-import { ProjectDocument, ChatMessage } from '../types';
+import { subscribeToProject, subscribeToMessages, subscribeToShortlistedTalents } from '../services/firebase';
+import { ProjectDocument, ChatMessage, ShortlistedTalent } from '../types';
 
 interface ProjectTabSessionProps {
   projectId: string;
@@ -17,6 +17,7 @@ export const ProjectTabSession: React.FC<ProjectTabSessionProps> = ({
 }) => {
   const [project, setProject] = useState<ProjectDocument | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [shortlistedTalents, setShortlistedTalents] = useState<ShortlistedTalent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,9 +53,21 @@ export const ProjectTabSession: React.FC<ProjectTabSessionProps> = ({
       }
     );
 
+    // Subscribe to Project shortlisted talents subcollection in Firestore
+    const unsubShortlist = subscribeToShortlistedTalents(
+      projectId,
+      (talents) => {
+        setShortlistedTalents(talents);
+      },
+      (err) => {
+        console.error(`Firestore shortlist subscription error [${projectId}]:`, err);
+      }
+    );
+
     return () => {
       unsubProject();
       unsubMessages();
+      unsubShortlist();
     };
   }, [projectId]);
 
@@ -69,6 +82,7 @@ export const ProjectTabSession: React.FC<ProjectTabSessionProps> = ({
         loading={loading}
         error={error}
         messages={messages}
+        shortlistedTalents={shortlistedTalents}
       />
       <ChatPanel projectId={projectId} persistedMessages={messages} />
     </div>

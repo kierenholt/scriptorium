@@ -212,3 +212,31 @@ export async function fetchInboxEmails(limit: number = 25): Promise<ProjectEmail
     timestamp: e.receivedAt || e.sentAt || new Date().toISOString(),
   }));
 }
+
+/**
+ * Delete an email record from the repository via /deleteEmail endpoint.
+ */
+export async function deleteEmail(
+  emailId: string
+): Promise<{ success: boolean; message: string; data?: any }> {
+  if (!emailId || typeof emailId !== 'string' || emailId.trim() === '') {
+    throw new Error('[FAIL FAST] Mandatory parameter "emailId" is missing from deleteEmail.');
+  }
+
+  const url = `${config.apiBaseUrl}/deleteEmail`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ emailId: emailId.trim() }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to delete email (${response.status}): ${errorText}`);
+  }
+
+  return response.json();
+}

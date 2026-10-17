@@ -1,4 +1,4 @@
-import { ProjectStatus } from '../types';
+import { ProjectStatus, ShortlistStatus } from '../types';
 
 export interface ToolExecutionResult {
   success: boolean;
@@ -104,6 +104,39 @@ export interface AssignEmailToProjectArgs {
 
 export interface ListUnassignedInboxEmailsArgs {
   limit?: number;
+}
+
+export interface DeleteEmailArgs {
+  emailId?: string;
+}
+
+export interface ShortlistCandidateArgs {
+  name?: string;
+  role?: string;
+  talentId?: string;
+  status?: ShortlistStatus | string;
+  notes?: string;
+  dayRate?: string | number;
+}
+
+export interface ListShortlistedTalentsArgs {
+  status?: ShortlistStatus | string;
+  limit?: number;
+}
+
+export interface UpdateShortlistedTalentStatusArgs {
+  shortlistId?: string;
+  status?: ShortlistStatus | string;
+  notes?: string;
+  dayRate?: string | number;
+}
+
+export interface RemoveShortlistedTalentArgs {
+  shortlistId?: string;
+}
+
+export interface DeleteEmailArgs {
+  emailId?: string;
 }
 
 
